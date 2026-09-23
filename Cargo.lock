@@ -163,6 +163,7 @@ dependencies = [
  "anyhow",
  "pliron",
  "pliron-llvm",
+ "smallvec",
 ]
 
 [[package]]

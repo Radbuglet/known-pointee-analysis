@@ -1,86 +1,62 @@
-llvm.func @_Z9unrelatedv: llvm.func <llvm.void () variadic = false>
+llvm.func @_Z4meowPbS_: llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variadic = false>
   [llvm_function_linkage: llvm.linkage ExternalLinkage] 
 {
-  ^entry_block2v1():
-    llvm.return 
-}
-----
-()
+  ^entry_block2v1(v0: llvm.ptr (0), v1: llvm.ptr (0)):
+    v2 = llvm.constant <builtin.integer <0: i32>> : builtin.integer i32;
+    v7 = llvm.constant <builtin.integer <1: i8>> : builtin.integer i8;
+    v13 = llvm.constant <builtin.integer <0: i8>> : builtin.integer i8;
+    v14 = llvm.constant <builtin.integer <1: i32>> : builtin.integer i32;
+    v16 = llvm.constant <builtin.integer <1024: i32>> : builtin.integer i32;
+    llvm.br ^block3v1(v2, v0)
 
-
-llvm.func @_Z4meowRbS_: llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variadic = false>
-  [llvm_function_linkage: llvm.linkage ExternalLinkage] 
-{
-  ^entry_block3v1(v0: llvm.ptr (0), v1: llvm.ptr (0)):
-    v2 = llvm.constant <builtin.integer <1: i32>> : builtin.integer i32;
-    v6 = llvm.constant <builtin.integer <0: i32>> : builtin.integer i32;
-    v8 = llvm.constant <builtin.integer <1024: i32>> : builtin.integer i32;
-    v12 = llvm.constant <builtin.integer <0: i8>> : builtin.integer i8;
-    v15 = llvm.constant <builtin.integer <1: i8>> : builtin.integer i8;
-    v3 = llvm.alloca [llvm.ptr (0) x v2] [align : 8] : llvm.ptr (0);
-    v4 = llvm.alloca [llvm.ptr (0) x v2] [align : 8] : llvm.ptr (0);
-    v5 = llvm.alloca [builtin.integer i32 x v2] [align : 4] : llvm.ptr (0);
-    llvm.store *v3 <- v0 [align : 8];
-    llvm.store *v4 <- v1 [align : 8];
-    llvm.store *v5 <- v6 [align : 4];
-    llvm.br ^block4v1()
+  ^block3v1(v3: builtin.integer i32, v4: llvm.ptr (0)):
+    v5 = llvm.load v4 [align : 1] : builtin.integer i8 !0;
+    v6 = llvm.trunc v5 to builtin.integer i1;
+    llvm.cond_br if v6 ^block5v1() else ^block4v1()
 
   ^block4v1():
-    v7 = llvm.load v5 [align : 4] : builtin.integer i32;
-    v9 = llvm.icmp v7 <ULT> v8 : builtin.integer i1;
-    llvm.cond_br if v9 ^block6v1() else ^block5v1()
+    llvm.store *v4 <- v7 [align : 1] !1;
+    llvm.br ^block6v1()
 
   ^block5v1():
-    llvm.return 
+    v8 = llvm.call @_Z5panicv () : llvm.func <llvm.void () variadic = false>;
+    llvm.br ^block6v1()
 
   ^block6v1():
-    v10 = llvm.load v3 [align : 8] : llvm.ptr (0) !0;
-    v11 = llvm.load v10 [align : 1] : builtin.integer i8;
-    v13 = llvm.icmp v11 <NE> v12 : builtin.integer i1;
-    llvm.cond_br if v13 ^block8v1() else ^block7v1()
+    v9 = llvm.load v1 [align : 1] : builtin.integer i8 !2;
+    v10 = llvm.trunc v9 to builtin.integer i1;
+    llvm.cond_br if v10 ^block8v1() else ^block7v1()
 
   ^block7v1():
-    v14 = llvm.load v3 [align : 8] : llvm.ptr (0) !1;
-    llvm.store *v14 <- v15 [align : 1];
+    llvm.store *v1 <- v7 [align : 1] !3;
     llvm.br ^block9v1()
 
   ^block8v1():
-    v16 = llvm.call @_Z5panicv () : llvm.func <llvm.void () variadic = false>;
+    v11 = llvm.call @_Z5panicv () : llvm.func <llvm.void () variadic = false>;
     llvm.br ^block9v1()
 
   ^block9v1():
-    v17 = llvm.load v4 [align : 8] : llvm.ptr (0) !2;
-    v18 = llvm.load v17 [align : 1] : builtin.integer i8;
-    v19 = llvm.icmp v18 <NE> v12 : builtin.integer i1;
-    llvm.cond_br if v19 ^block11v1() else ^block10v1()
+    v12 = llvm.call @_Z9unrelatedPb (v4) : llvm.func <llvm.ptr (0)(llvm.ptr (0)) variadic = false>;
+    llvm.store *v12 <- v13 [align : 1] !4;
+    llvm.store *v1 <- v13 [align : 1] !5;
+    v15 = llvm.add v3, v14 <{nsw=true,nuw=true}>: builtin.integer i32;
+    v17 = llvm.icmp v15 <EQ> v16 : builtin.integer i1;
+    llvm.cond_br if v17 ^block10v1() else ^block3v1(v15, v12) !6
 
   ^block10v1():
-    v20 = llvm.load v4 [align : 8] : llvm.ptr (0) !3;
-    llvm.store *v20 <- v15 [align : 1];
-    llvm.br ^block12v1()
-
-  ^block11v1():
-    v21 = llvm.call @_Z5panicv () : llvm.func <llvm.void () variadic = false>;
-    llvm.br ^block12v1()
-
-  ^block12v1():
-    v22 = llvm.load v3 [align : 8] : llvm.ptr (0) !4;
-    llvm.store *v22 <- v12 [align : 1];
-    v23 = llvm.load v4 [align : 8] : llvm.ptr (0) !5;
-    llvm.store *v23 <- v12 [align : 1];
-    llvm.br ^block13v1()
-
-  ^block13v1():
-    v24 = llvm.load v5 [align : 4] : builtin.integer i32;
-    v25 = llvm.add v24, v2 <{nsw=false,nuw=false}>: builtin.integer i32;
-    llvm.store *v5 <- v25 [align : 4];
-    llvm.br ^block4v1() !6
+    llvm.return 
 }
 ----
 ()
 
 
 llvm.func @_Z5panicv: llvm.func <llvm.void () variadic = false>
+  [llvm_function_linkage: llvm.linkage ExternalLinkage]
+----
+()
+
+
+llvm.func @_Z9unrelatedPb: llvm.func <llvm.ptr (0)(llvm.ptr (0)) variadic = false>
   [llvm_function_linkage: llvm.linkage ExternalLinkage]
 ----
 ()

@@ -2,33 +2,33 @@
 
 void panic();
 
-void unrelated()
-{
-}
+bool *unrelated(bool *input);
 
-void meow(bool &foo, bool &bar)
+void meow(bool *foo, bool *bar)
 {
     for (uint32_t i = 0; i < 1024; i += 1)
     {
-        if (!foo)
+        if (!*foo)
         {
-            foo = true;
+            *foo = true;
         }
         else
         {
             panic();
         }
 
-        if (!bar)
+        if (!*bar)
         {
-            bar = true;
+            *bar = true;
         }
         else
         {
             panic();
         }
 
-        foo = false;
-        bar = false;
+        foo = unrelated(foo);
+
+        *foo = false;
+        *bar = false;
     }
 }

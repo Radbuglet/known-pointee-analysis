@@ -1,12 +1,9 @@
 use std::env;
 
+use anyhow::Context as _;
 use pliron::{
-    arg_error_noloc,
-    builtin::op_interfaces::SingleBlockRegionInterface as _,
-    context::Context,
-    linked_list::ContainsLinkedList,
-    op::{Op, verify_op},
-    pass::AnalysisManager,
+    arg_error_noloc, builtin::op_interfaces::SingleBlockRegionInterface as _, context::Context,
+    linked_list::ContainsLinkedList, op::verify_op, pass::AnalysisManager,
     printable::Printable as _,
 };
 use pliron_llvm::{
@@ -38,12 +35,8 @@ fn main() -> anyhow::Result<()> {
 
     let module = from_llvm_ir::convert_module(&mut ctx, &module)?;
 
-    verify_op(&module, &mut ctx).inspect_err(|_| {
-        eprintln!(
-            "Parsed pliron IR (verification failed):\n{}",
-            module.disp(&mut ctx)
-        );
-    })?;
+    verify_op(&module, &mut ctx)
+        .with_context(|| format!("verification failed\n{}", module.disp(&mut ctx)))?;
 
     // Run an analysis
     // See: https://docs.rs/pliron/0.18.0/pliron/pass/index.html
@@ -51,15 +44,19 @@ fn main() -> anyhow::Result<()> {
 
     // An `Operation`, in essence, is just...
     //
-    // - a container for arbitrary metadata (e.g. type information, literal arguments, but not SSA
-    //   arguments, which are modelled elsewhere)
+    // - a container for arbitrary metadata (e.g. literal arguments, but not SSA arguments or types,
+    //   which are modelled elsewhere)
     //    - see `attributes`
-    // - a set of input and output SSA terms
-    //    - see `operands` and `results`
     // - a set of interfaces which can be dynamically casted
     //    - these are defined statically per concrete operand type
     //    - see `concrete_op` and the `Op` trait
     //    - this also includes printing and parsing behavior
+    // - a set of input and output SSA terms
+    //    - each term has a type
+    //    - see `operands` and `results`
+    // - a set of successor blocks
+    //    - see `successors`
+    //    - arguments to these blocks are *operation defined*
     // - a set of child regions, containing a bunch of basic blocks which, in turn, contain more
     //   operations.
     //    - basic blocks use linked lists of operations, which is how operations know their position in
