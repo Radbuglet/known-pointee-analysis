@@ -7,8 +7,6 @@ use pliron::{
 };
 use pliron_llvm::ops::FuncOp;
 
-use crate::dataflow::DataflowAnalysis;
-
 pub struct PointeeConstantsFacts {}
 
 impl Analysis for PointeeConstantsFacts {
@@ -29,21 +27,6 @@ impl Analysis for PointeeConstantsFacts {
             return Ok(Self {});
         };
 
-        PointeeConstantsDataflow { ctx }.analyze(body);
-
         Ok(Self {})
-    }
-}
-
-pub struct PointeeConstantsDataflow<'c> {
-    ctx: &'c Context,
-}
-
-impl<'c> DataflowAnalysis<'c> for PointeeConstantsDataflow<'c> {
-    type Effects = ();
-    type Var = ();
-
-    fn ctx(&self) -> &'c Context {
-        self.ctx
     }
 }

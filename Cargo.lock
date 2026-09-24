@@ -161,10 +161,10 @@ name = "cst_analysis"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "index_vec",
  "pliron",
  "pliron-llvm",
  "rustc-hash",
- "slotmap",
  "smallvec",
 ]
 
@@ -218,6 +218,12 @@ dependencies = [
  "rustversion",
  "wide",
 ]
+
+[[package]]
+name = "index_vec"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "44faf5bb8861a9c72e20d3fb0fdbd59233e43056e2b80475ab0aacdc2e781355"
 
 [[package]]
 name = "indexmap"

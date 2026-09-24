@@ -1,139 +1,83 @@
+use index_vec::{IndexVec, define_index_type};
 use pliron::{
-    builtin::op_interfaces::BranchOpInterface,
+    basic_block::BasicBlock,
     context::{Context, Ptr},
-    linked_list::ContainsLinkedList,
-    op::op_impls,
     operation::Operation,
-    printable::Printable,
+    pass::{Analysis, AnalysisManager},
     region::Region,
+    result::Error as PlironError,
 };
-use rustc_hash::FxHashMap;
-use slotmap::{SlotMap, new_key_type};
 use smallvec::SmallVec;
 
-pub trait DataflowAnalysis<'c>: Sized {
-    type Effects: Lattice<'c, Self>;
-    type Var: Lattice<'c, Self>;
+// === DataflowGraph === //
 
-    fn ctx(&self) -> &'c Context;
+define_index_type! {
+    struct DataflowNodeIdx = u32;
+}
 
-    fn analyze(&mut self, region: Ptr<Region>) {
-        let ctx = self.ctx();
+pub struct DataflowGraph {
+    nodes: IndexVec<DataflowNodeIdx, DataflowNode>,
+}
 
-        new_key_type! {
-            struct NodeIdx;
-        }
+enum DataflowNode {
+    /// A start-of-block node which stashes incoming effects and block variable states.
+    StartOfBlock {
+        block: Ptr<BasicBlock>,
 
-        struct Node<TEffect, TVar> {
-            input_state: TEffect,
-            operands: Vec<NodeIdx>,
-            successors: SmallVec<[NodeIdx; 1]>,
-            defined_var: Option<NodeVar<TVar>>,
-            is_queued: bool,
-        }
+        /// The statement to which this effect is forward.
+        first_stmt: DataflowNodeIdx,
 
-        struct NodeVar<TVar> {
-            state: TVar,
-            consumers: Vec<NodeIdx>,
-        }
+        /// Nodes which consume this block's variable states.
+        output_consumers: SmallVec<[DataflowNodeIdx; 1]>,
+    },
+    /// A statement node which may produce a result and propagate that result elsewhere.
+    Stmt {
+        operation: Ptr<Operation>,
 
-        // Import the operations into an operation graph
-        let mut nodes = SlotMap::<NodeIdx, Node<Self::Effects, Self::Var>>::default();
-        let mut mapping = FxHashMap::<Ptr<Operation>, NodeIdx>::default();
+        /// `Stmt` and `StartOfBlock` nodes supplying our operand variable states.
+        operands: SmallVec<[DataflowNodeIdxAndSlot; 2]>,
 
-        for bb in region.deref(ctx).iter(ctx) {
-            let terminator = bb
-                .deref(ctx)
-                .get_terminator(ctx)
-                .expect("basic blocks must have a terminator");
+        /// `Stmt` and `StartOfBlock` nodes which consume our result.
+        output_consumers: SmallVec<[DataflowNodeIdxAndSlot; 1]>,
 
-            for op in bb.deref(ctx).iter(ctx) {
-                // Create placeholder
-                let node = nodes.insert(Node {
-                    input_state: Self::Effects::fresh_bot(self),
-                    operands: Vec::new(),        // (late init)
-                    successors: SmallVec::new(), // (late init)
-                    defined_var: None,           // (late init)
-                    is_queued: false,
-                });
+        /// Subsequent node in this basic block.
+        effect_successor: DataflowNodeIdx,
+    },
+    /// A terminator node which may propagate its effect to multiple different targets.
+    Terminator {
+        /// Where each successor `StartOfBlock` lives.
+        effect_successors: SmallVec<[DataflowNodeIdx; 2]>,
+    },
+}
 
-                mapping.insert(op, node);
+struct DataflowNodeIdxAndSlot {
+    node: DataflowNodeIdx,
+    output_idx: u32,
+}
 
-                // Validate
-                assert_eq!(op.deref(ctx).num_regions(), 0);
-
-                if op == terminator {
-                    match op.deref(ctx).get_num_successors() {
-                        0 => {
-                            // (no need to implement `BranchOpInterface`)
-                        }
-                        1.. => {
-                            assert!(
-                                op_impls::<dyn BranchOpInterface>(
-                                    Operation::get_op_dyn(op, ctx).op_ref()
-                                ),
-                                "not a branch:\n{}",
-                                op.disp(ctx)
-                            );
-                        }
-                    }
-
-                    assert_eq!(op.deref(ctx).get_num_results(), 0);
-                } else {
-                    assert_eq!(
-                        op.deref(ctx).get_num_successors(),
-                        0,
-                        "statements cannot have non-trivial successors"
-                    );
-
-                    assert!(
-                        matches!(op.deref(ctx).get_num_results(), 0..=1),
-                        "statements can have at most one result"
-                    );
-                }
-            }
-        }
-
-        for bb in region.deref(ctx).iter(ctx) {
-            let terminator = bb.deref(ctx).get_terminator(ctx);
-
-            for op in bb.deref(ctx).iter(ctx) {
-                let node = mapping[&op];
-
-                // Initialize operands
-                // TODO
-
-                // Initialize successors
-                // TODO
-
-                // Initialize reverse dependencies
-                // TODO
-            }
-        }
-
-        // Run dataflow
-        // TODO
+impl DataflowGraph {
+    pub fn new(ctx: &Context, region: Ptr<Region>) -> Self {
+        todo!()
     }
 }
 
-pub trait Lattice<'c, D: DataflowAnalysis<'c>> {
-    fn fresh_top(df: &mut D) -> Self;
-
-    fn fresh_bot(df: &mut D) -> Self;
-
-    fn join(df: &mut D, target: &mut Self, source: &Self) -> bool;
-}
-
-impl<'c, D: DataflowAnalysis<'c>> Lattice<'c, D> for () {
-    fn fresh_top(_df: &mut D) -> Self {
-        // (no-op)
+impl Analysis for DataflowGraph {
+    fn name(&self) -> &str {
+        "dataflow graph"
     }
 
-    fn fresh_bot(_df: &mut D) -> Self {
-        // (no-op)
-    }
-
-    fn join(_df: &mut D, _target: &mut Self, _source: &Self) -> bool {
-        false
+    fn compute(
+        op: Ptr<Operation>,
+        ctx: &Context,
+        _analyses: &mut AnalysisManager,
+    ) -> Result<Self, PlironError>
+    where
+        Self: Sized,
+    {
+        todo!()
     }
 }
+
+// === DataflowAnalysis === //
+
+// TODO
