@@ -7,7 +7,7 @@ use pliron::{
 };
 use pliron_llvm::ops::FuncOp;
 
-use crate::dataflow::{DataflowAnalysis, DataflowOutput};
+use crate::dataflow::DataflowAnalysis;
 
 pub struct PointeeConstantsFacts {}
 
@@ -40,24 +40,10 @@ pub struct PointeeConstantsDataflow<'c> {
 }
 
 impl<'c> DataflowAnalysis<'c> for PointeeConstantsDataflow<'c> {
-    type ProgState = ();
-    type VarState = ();
+    type Effects = ();
+    type Var = ();
 
     fn ctx(&self) -> &'c Context {
         self.ctx
-    }
-
-    fn trans_statement(
-        &mut self,
-        input_prog: &Self::ProgState,
-        input_vars: &[&Self::VarState],
-        output_prog: DataflowOutput<'_, Self::ProgState>,
-        output_var: Option<DataflowOutput<'_, Self::VarState>>,
-    ) {
-        todo!()
-    }
-
-    fn trans_terminator(&mut self) {
-        todo!()
     }
 }

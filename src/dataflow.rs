@@ -7,58 +7,62 @@ use pliron::{
     printable::Printable,
     region::Region,
 };
-
-pub struct DataflowOutput<'a, T> {
-    did_change: &'a mut bool,
-    value: &'a mut T,
-}
-
-impl<'a, T> DataflowOutput<'a, T> {
-    pub fn get(&self) -> &T {
-        self.value
-    }
-
-    pub fn get_mut(&mut self) -> &mut T {
-        self.mark_dirty();
-        self.value
-    }
-
-    pub fn get_mut_no_update(&mut self) -> &mut T {
-        self.value
-    }
-
-    pub fn mark_dirty(&mut self) {
-        *self.did_change = true;
-    }
-}
+use rustc_hash::FxHashMap;
+use slotmap::{SlotMap, new_key_type};
+use smallvec::SmallVec;
 
 pub trait DataflowAnalysis<'c>: Sized {
-    type ProgState: Lattice<'c, Self>;
-    type VarState: Lattice<'c, Self>;
+    type Effects: Lattice<'c, Self>;
+    type Var: Lattice<'c, Self>;
 
     fn ctx(&self) -> &'c Context;
-
-    fn trans_statement(
-        &mut self,
-        input_prog: &Self::ProgState,
-        input_vars: &[&Self::VarState],
-        output_prog: DataflowOutput<'_, Self::ProgState>,
-        output_var: Option<DataflowOutput<'_, Self::VarState>>,
-    );
-
-    fn trans_terminator(&mut self);
 
     fn analyze(&mut self, region: Ptr<Region>) {
         let ctx = self.ctx();
 
-        // Validate basic blocks
+        new_key_type! {
+            struct NodeIdx;
+        }
+
+        struct Node<TEffect, TVar> {
+            input_state: TEffect,
+            operands: Vec<NodeIdx>,
+            successors: SmallVec<[NodeIdx; 1]>,
+            defined_var: Option<NodeVar<TVar>>,
+            is_queued: bool,
+        }
+
+        struct NodeVar<TVar> {
+            state: TVar,
+            consumers: Vec<NodeIdx>,
+        }
+
+        // Import the operations into an operation graph
+        let mut nodes = SlotMap::<NodeIdx, Node<Self::Effects, Self::Var>>::default();
+        let mut mapping = FxHashMap::<Ptr<Operation>, NodeIdx>::default();
+
         for bb in region.deref(ctx).iter(ctx) {
-            let terminator = bb.deref(ctx).get_terminator(ctx);
+            let terminator = bb
+                .deref(ctx)
+                .get_terminator(ctx)
+                .expect("basic blocks must have a terminator");
 
             for op in bb.deref(ctx).iter(ctx) {
+                // Create placeholder
+                let node = nodes.insert(Node {
+                    input_state: Self::Effects::fresh_bot(self),
+                    operands: Vec::new(),        // (late init)
+                    successors: SmallVec::new(), // (late init)
+                    defined_var: None,           // (late init)
+                    is_queued: false,
+                });
+
+                mapping.insert(op, node);
+
+                // Validate
                 assert_eq!(op.deref(ctx).num_regions(), 0);
 
-                if Some(op) == terminator {
+                if op == terminator {
                     match op.deref(ctx).get_num_successors() {
                         0 => {
                             // (no need to implement `BranchOpInterface`)
@@ -76,22 +80,48 @@ pub trait DataflowAnalysis<'c>: Sized {
 
                     assert_eq!(op.deref(ctx).get_num_results(), 0);
                 } else {
-                    assert_eq!(op.deref(ctx).get_num_successors(), 0);
-                    assert!(matches!(op.deref(ctx).get_num_results(), 0..=1));
+                    assert_eq!(
+                        op.deref(ctx).get_num_successors(),
+                        0,
+                        "statements cannot have non-trivial successors"
+                    );
+
+                    assert!(
+                        matches!(op.deref(ctx).get_num_results(), 0..=1),
+                        "statements can have at most one result"
+                    );
                 }
             }
         }
 
-        // TODO: analyze
+        for bb in region.deref(ctx).iter(ctx) {
+            let terminator = bb.deref(ctx).get_terminator(ctx);
+
+            for op in bb.deref(ctx).iter(ctx) {
+                let node = mapping[&op];
+
+                // Initialize operands
+                // TODO
+
+                // Initialize successors
+                // TODO
+
+                // Initialize reverse dependencies
+                // TODO
+            }
+        }
+
+        // Run dataflow
+        // TODO
     }
 }
 
-pub trait Lattice<'c, D: DataflowAnalysis<'c>>: Clone {
+pub trait Lattice<'c, D: DataflowAnalysis<'c>> {
     fn fresh_top(df: &mut D) -> Self;
 
     fn fresh_bot(df: &mut D) -> Self;
 
-    fn join(df: &mut D, target: &mut Self, sources: impl IntoIterator<Item = Self>);
+    fn join(df: &mut D, target: &mut Self, source: &Self) -> bool;
 }
 
 impl<'c, D: DataflowAnalysis<'c>> Lattice<'c, D> for () {
@@ -103,7 +133,7 @@ impl<'c, D: DataflowAnalysis<'c>> Lattice<'c, D> for () {
         // (no-op)
     }
 
-    fn join(_df: &mut D, _target: &mut Self, _sources: impl IntoIterator<Item = Self>) {
-        // (no-op)
+    fn join(_df: &mut D, _target: &mut Self, _source: &Self) -> bool {
+        false
     }
 }
