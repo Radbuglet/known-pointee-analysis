@@ -1,13 +1,13 @@
 use pliron::{
-    builtin::op_interfaces::{AtMostOneRegionInterface as _, BranchOpInterface},
+    builtin::op_interfaces::AtMostOneRegionInterface as _,
     context::{Context, Ptr},
-    linked_list::ContainsLinkedList as _,
-    op::op_cast,
     operation::Operation,
     pass::{Analysis, AnalysisManager},
     result::Error as PlironError,
 };
 use pliron_llvm::ops::FuncOp;
+
+use crate::dataflow::{DataflowAnalysis, DataflowOutput};
 
 pub struct PointeeConstantsFacts {}
 
@@ -29,15 +29,35 @@ impl Analysis for PointeeConstantsFacts {
             return Ok(Self {});
         };
 
-        for bb in body.deref(ctx).iter(ctx) {
-            if let Some(term) = bb.deref(ctx).get_terminator(ctx)
-                && let term = Operation::get_op_dyn(term, ctx)
-                && let Some(term) = op_cast::<dyn BranchOpInterface>(term.op_ref())
-            {
-                println!("{}", term.disp(ctx));
-            }
-        }
+        PointeeConstantsDataflow { ctx }.analyze(body);
 
         Ok(Self {})
+    }
+}
+
+pub struct PointeeConstantsDataflow<'c> {
+    ctx: &'c Context,
+}
+
+impl<'c> DataflowAnalysis<'c> for PointeeConstantsDataflow<'c> {
+    type ProgState = ();
+    type VarState = ();
+
+    fn ctx(&self) -> &'c Context {
+        self.ctx
+    }
+
+    fn trans_statement(
+        &mut self,
+        input_prog: &Self::ProgState,
+        input_vars: &[&Self::VarState],
+        output_prog: DataflowOutput<'_, Self::ProgState>,
+        output_var: Option<DataflowOutput<'_, Self::VarState>>,
+    ) {
+        todo!()
+    }
+
+    fn trans_terminator(&mut self) {
+        todo!()
     }
 }
