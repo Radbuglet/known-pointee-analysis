@@ -46,25 +46,101 @@ pub struct DataflowGraph {
 
 #[derive(Debug, Clone)]
 pub enum DataflowGraphNode {
-    Phi {
-        basic_block: Ptr<BasicBlock>,
-        basic_block_arg: DataflowBasicBlockArg,
-        input_states: SmallVec<[DataflowStateIdx; 2]>,
-        output_state: DataflowStateIdx,
-    },
-    Stmt {
-        operation: Ptr<Operation>,
-        input_effect: DataflowEffectIdx,
-        output_effect: DataflowEffectIdx,
-        input_states: SmallVec<[DataflowStateIdx; 2]>,
-        output_state: Option<DataflowStateIdx>,
-    },
-    Terminator {
-        operation: Ptr<Operation>,
-        input_effect: DataflowEffectIdx,
-        input_states: SmallVec<[DataflowStateIdx; 2]>,
-        output_effects: SmallVec<[DataflowEffectIdx; 2]>,
-    },
+    Phi(DataflowGraphNodePhi),
+    Stmt(DataflowGraphNodeStmt),
+    Terminator(DataflowGraphNodeTerminator),
+}
+
+impl From<DataflowGraphNodePhi> for DataflowGraphNode {
+    fn from(value: DataflowGraphNodePhi) -> Self {
+        Self::Phi(value)
+    }
+}
+
+impl From<DataflowGraphNodeStmt> for DataflowGraphNode {
+    fn from(value: DataflowGraphNodeStmt) -> Self {
+        Self::Stmt(value)
+    }
+}
+
+impl From<DataflowGraphNodeTerminator> for DataflowGraphNode {
+    fn from(value: DataflowGraphNodeTerminator) -> Self {
+        Self::Terminator(value)
+    }
+}
+
+macro_rules! make_conversions {
+    (
+        $($name:ident => $ty:ty : $ident:ident in $pat:pat),*
+        $(,)?
+    ) => {
+        // Paste my beloved.
+        paste::paste! {
+            #[allow(unused)]
+            impl DataflowGraphNode {
+                $(
+                    pub fn [< as_ $name >](&self) -> Option<&$ty> {
+                        match self {
+                            $pat => Some($ident),
+                            _ => None,
+                        }
+                    }
+
+                    pub fn [< as_ $name _mut >](&mut self) -> Option<&mut $ty> {
+                        match self {
+                            $pat => Some($ident),
+                            _ => None,
+                        }
+                    }
+
+                    pub fn [< unwrap_ $name >](&self) -> &$ty {
+                        self.[< as_ $name >]().unwrap()
+                    }
+
+                    pub fn [< unwrap_ $name _mut >](&mut self) -> &mut $ty {
+                        self.[< as_ $name _mut >]().unwrap()
+                    }
+                )*
+            }
+        }
+    };
+}
+
+make_conversions! {
+    phi => DataflowGraphNodePhi : v in Self::Phi(v),
+    stmt => DataflowGraphNodeStmt : v in Self::Stmt(v),
+    terminator => DataflowGraphNodeTerminator : v in Self::Terminator(v),
+    output_state => DataflowStateIdx : v in
+        | Self::Phi(DataflowGraphNodePhi { output_state: v, .. })
+        | Self::Stmt(DataflowGraphNodeStmt { output_state: Some(v), .. }),
+    input_effect => DataflowEffectIdx : v in
+        | Self::Stmt(DataflowGraphNodeStmt { input_effect: v, .. })
+        | Self::Terminator(DataflowGraphNodeTerminator { input_effect: v, .. }),
+}
+
+#[derive(Debug, Clone)]
+pub struct DataflowGraphNodePhi {
+    pub basic_block: Ptr<BasicBlock>,
+    pub basic_block_arg: DataflowBasicBlockArg,
+    pub input_states: SmallVec<[DataflowStateIdx; 2]>,
+    pub output_state: DataflowStateIdx,
+}
+
+#[derive(Debug, Clone)]
+pub struct DataflowGraphNodeStmt {
+    pub operation: Ptr<Operation>,
+    pub input_effect: DataflowEffectIdx,
+    pub output_effect: DataflowEffectIdx,
+    pub input_states: SmallVec<[DataflowStateIdx; 2]>,
+    pub output_state: Option<DataflowStateIdx>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DataflowGraphNodeTerminator {
+    pub operation: Ptr<Operation>,
+    pub input_effect: DataflowEffectIdx,
+    pub input_states: SmallVec<[DataflowStateIdx; 2]>,
+    pub output_effects: SmallVec<[DataflowEffectIdx; 2]>,
 }
 
 #[derive(Debug, Clone)]
@@ -107,22 +183,30 @@ impl DataflowGraph {
                         _ => unreachable!(),
                     };
 
-                    let node_idx = graph.node_defs.push(DataflowGraphNode::Stmt {
-                        operation,
-                        input_effect: input_effect,
-                        output_effect: DataflowEffectIdx::from_usize(DataflowEffectIdx::MAX_INDEX),
-                        input_states: SmallVec::new(),
-                        output_state,
-                    });
+                    let node_idx = graph.node_defs.push(
+                        DataflowGraphNodeStmt {
+                            operation,
+                            input_effect: input_effect,
+                            output_effect: DataflowEffectIdx::from_usize(
+                                DataflowEffectIdx::MAX_INDEX,
+                            ),
+                            input_states: SmallVec::new(),
+                            output_state,
+                        }
+                        .into(),
+                    );
 
                     graph.op_map.insert(operation, node_idx);
                 } else {
-                    let node_idx = graph.node_defs.push(DataflowGraphNode::Terminator {
-                        operation,
-                        input_effect,
-                        input_states: SmallVec::new(),
-                        output_effects: SmallVec::new(),
-                    });
+                    let node_idx = graph.node_defs.push(
+                        DataflowGraphNodeTerminator {
+                            operation,
+                            input_effect,
+                            input_states: SmallVec::new(),
+                            output_effects: SmallVec::new(),
+                        }
+                        .into(),
+                    );
 
                     graph.op_map.insert(operation, node_idx);
                 }
@@ -135,12 +219,15 @@ impl DataflowGraph {
                         input_to: SmallVec::new(),
                     });
 
-                    graph.node_defs.push(DataflowGraphNode::Phi {
-                        basic_block,
-                        basic_block_arg: DataflowBasicBlockArg::from_usize(basic_block_arg),
-                        input_states: SmallVec::new(),
-                        output_state,
-                    })
+                    graph.node_defs.push(
+                        DataflowGraphNodePhi {
+                            basic_block,
+                            basic_block_arg: DataflowBasicBlockArg::from_usize(basic_block_arg),
+                            input_states: SmallVec::new(),
+                            output_state,
+                        }
+                        .into(),
+                    )
                 })
                 .collect();
 
@@ -150,57 +237,27 @@ impl DataflowGraph {
         // Connect up everything.
         fn lookup_state(graph: &DataflowGraph, ctx: &Context, value: Value) -> DataflowStateIdx {
             match value.defining_entity() {
-                DefiningEntity::Op(op) => match graph.node_defs[graph.op_map[&op]] {
-                    DataflowGraphNode::Phi { .. }
-                    | DataflowGraphNode::Terminator { .. }
-                    | DataflowGraphNode::Stmt {
-                        output_state: None, ..
-                    } => unreachable!(),
-                    DataflowGraphNode::Stmt {
-                        output_state: Some(output_state),
-                        ..
-                    } => output_state,
-                },
+                DefiningEntity::Op(op) => *graph.node_defs[graph.op_map[&op]].unwrap_output_state(),
                 DefiningEntity::Block(bb) => {
                     let phi_node = graph.bb_map[&bb][value.find_index(ctx)];
-
-                    let DataflowGraphNode::Phi { output_state, .. } = graph.node_defs[phi_node]
-                    else {
-                        unreachable!()
-                    };
-
-                    output_state
+                    *graph.node_defs[phi_node].unwrap_output_state()
                 }
             }
         }
 
         for node_idx in graph.node_defs.indices() {
             match &graph.node_defs[node_idx] {
-                DataflowGraphNode::Phi { .. } => {
+                DataflowGraphNode::Phi(DataflowGraphNodePhi { .. }) => {
                     // (connected in terminators)
                 }
-                DataflowGraphNode::Stmt {
-                    operation,
-                    input_effect: _, // (already init)
-                    output_effect: _,
-                    input_states: _,
-                    output_state: _, // (already init)
-                } => {
+                DataflowGraphNode::Stmt(DataflowGraphNodeStmt { operation, .. }) => {
                     let operation_r = operation.deref(ctx);
                     let operation_succ = operation_r.get_next().unwrap();
 
                     // Determine `output_effect`
-                    let (DataflowGraphNode::Stmt {
-                        input_effect: init_output_effect,
-                        ..
-                    }
-                    | DataflowGraphNode::Terminator {
-                        input_effect: init_output_effect,
-                        ..
-                    }) = graph.node_defs[graph.op_map[&operation_succ]]
-                    else {
-                        unreachable!()
-                    };
+                    let init_output_effect = *graph.node_defs[graph.op_map[&operation_succ]]
+                        .as_input_effect()
+                        .unwrap();
 
                     // Determine `input_states`
                     let init_input_states = operation_r
@@ -213,24 +270,20 @@ impl DataflowGraph {
                     }
 
                     // Write out states
-                    let DataflowGraphNode::Stmt {
+                    let DataflowGraphNodeStmt {
+                        operation: _,
+                        input_effect: _, // (already init)
                         output_effect,
                         input_states,
-                        ..
-                    } = &mut graph.node_defs[node_idx]
-                    else {
-                        unreachable!()
-                    };
+                        output_state: _, // (already init)
+                    } = graph.node_defs[node_idx].unwrap_stmt_mut();
 
                     *output_effect = init_output_effect;
                     *input_states = init_input_states;
                 }
-                DataflowGraphNode::Terminator {
-                    operation,
-                    input_effect: _, // (already init)
-                    input_states: _,
-                    output_effects: _,
-                } => {
+                DataflowGraphNode::Terminator(DataflowGraphNodeTerminator {
+                    operation, ..
+                }) => {
                     let operation = *operation;
                     let operation_r = operation.deref(ctx);
 
@@ -251,27 +304,17 @@ impl DataflowGraph {
                         .into_iter()
                         .map(|bb| {
                             let first_op = bb.deref(ctx).get_head().unwrap();
-
-                            let (DataflowGraphNode::Stmt { input_effect, .. }
-                            | DataflowGraphNode::Terminator { input_effect, .. }) =
-                                graph.node_defs[graph.op_map[&first_op]]
-                            else {
-                                unreachable!()
-                            };
-
-                            input_effect
+                            *graph.node_defs[graph.op_map[&first_op]].unwrap_input_effect()
                         })
                         .collect::<SmallVec<[_; 2]>>();
 
                     // Write out states
-                    let DataflowGraphNode::Terminator {
+                    let DataflowGraphNodeTerminator {
+                        operation: _,
+                        input_effect: _, // (already init)
                         input_states,
                         output_effects,
-                        ..
-                    } = &mut graph.node_defs[node_idx]
-                    else {
-                        unreachable!()
-                    };
+                    } = graph.node_defs[node_idx].unwrap_terminator_mut();
 
                     *input_states = init_input_states;
                     *output_effects = init_output_effects;
@@ -296,13 +339,10 @@ impl DataflowGraph {
                         {
                             let src_state = lookup_state(&graph, ctx, src_value);
 
-                            let DataflowGraphNode::Phi {
+                            let DataflowGraphNodePhi {
                                 input_states: dst_input_states,
                                 ..
-                            } = &mut graph.node_defs[dst_node]
-                            else {
-                                unreachable!();
-                            };
+                            } = graph.node_defs[dst_node].unwrap_phi_mut();
 
                             dst_input_states.push(src_state);
                             graph.state_defs[src_state].input_to.push(dst_node);

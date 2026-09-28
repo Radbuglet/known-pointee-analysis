@@ -162,6 +162,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "index_vec",
+ "paste",
  "pliron",
  "pliron-llvm",
  "rustc-hash",
@@ -316,6 +317,12 @@ name = "once_vec"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b61fbf7ec37342ce171d9f5e3b82be74bda6c4e84e3b28338a03d553913e6aa"
+
+[[package]]
+name = "paste"
+version = "1.0.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "pliron"

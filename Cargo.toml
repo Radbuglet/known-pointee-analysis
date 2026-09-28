@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.104"
 index_vec = "0.1.4"
+paste = "1.0.15"
 pliron = "0.18.0"
 pliron-llvm = "0.18.0"
 rustc-hash = "2.1.3"
