@@ -7,6 +7,8 @@ use pliron::{
 };
 use pliron_llvm::ops::FuncOp;
 
+use crate::dataflow::DataflowGraph;
+
 pub struct PointeeConstantsFacts {}
 
 impl Analysis for PointeeConstantsFacts {
@@ -15,17 +17,21 @@ impl Analysis for PointeeConstantsFacts {
     }
 
     fn compute(
-        op: Ptr<Operation>,
+        raw_op: Ptr<Operation>,
         ctx: &Context,
-        _analyses: &mut AnalysisManager,
+        analyses: &mut AnalysisManager,
     ) -> Result<Self, PlironError> {
-        let Some(op) = Operation::get_op::<FuncOp>(op, ctx) else {
+        let Some(op) = Operation::get_op::<FuncOp>(raw_op, ctx) else {
             return Ok(Self {});
         };
 
         let Some(body) = op.get_region(ctx) else {
             return Ok(Self {});
         };
+
+        let graph = analyses
+            .compute_analysis::<DataflowGraph>(raw_op, ctx)
+            .unwrap();
 
         Ok(Self {})
     }

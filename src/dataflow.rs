@@ -1,8 +1,10 @@
 use index_vec::{IndexVec, define_index_type};
 use pliron::{
     basic_block::BasicBlock,
+    builtin::op_interfaces::{BranchOpInterface, OneRegionInterface, OperandSegmentInterface},
     context::{Context, Ptr},
     linked_list::{ContainsLinkedList, LinkedList},
+    op::op_cast,
     operation::Operation,
     pass::{Analysis, AnalysisManager},
     region::Region,
@@ -34,7 +36,7 @@ enum DataflowNode {
         effect_successor: DataflowNodeIdx,
 
         /// Nodes which consume this block's variable states.
-        output_consumers: SmallVec<[DataflowNodeIdx; 1]>,
+        output_consumers: SmallVec<[DataflowOutput; 1]>,
     },
     /// A statement node which may produce a result and propagate that result elsewhere.
     Stmt {
@@ -44,7 +46,7 @@ enum DataflowNode {
         operands: SmallVec<[DataflowOperand; 2]>,
 
         /// `Stmt` and `StartOfBlock` nodes which consume our result.
-        output_consumers: SmallVec<[DataflowOperand; 1]>,
+        output_consumers: SmallVec<[DataflowOutput; 1]>,
 
         /// Subsequent node in this basic block.
         effect_successor: DataflowNodeIdx,
@@ -67,7 +69,7 @@ struct DataflowOperand {
     output_idx: u32,
 }
 
-struct DataflowResultConsumer {
+struct DataflowOutput {
     node: DataflowNodeIdx,
     output_idx_if_start: u32,
 }
@@ -92,7 +94,7 @@ impl DataflowGraph {
             );
 
             for op in bb.deref(ctx).iter(ctx) {
-                if op.deref(ctx).get_next() == None {
+                if op.deref(ctx).get_next().is_none() {
                     graph.op_mapping.insert(
                         op,
                         graph.nodes.push(DataflowNode::Terminator {
@@ -115,8 +117,8 @@ impl DataflowGraph {
             }
         }
 
-        // Link up nodes
-        for node_idx in &mut graph.nodes.indices() {
+        // Link up forward references (i.e. effects and forwarded arguments)
+        for node_idx in graph.nodes.indices() {
             match &mut graph.nodes[node_idx] {
                 DataflowNode::StartOfBlock {
                     block,
@@ -132,58 +134,6 @@ impl DataflowGraph {
                     effect_successor,
                 } => {
                     *effect_successor = graph.op_mapping[&operation.deref(ctx).get_next().unwrap()];
-
-                    let init_operands = operation
-                        .deref(ctx)
-                        .operands()
-                        .map(|operand| match operand.defining_entity() {
-                            DefiningEntity::Op(op) => {
-                                let op_idx = graph.op_mapping[&op];
-
-                                let DataflowNode::Stmt {
-                                    output_consumers: op_output_consumers,
-                                    ..
-                                } = &mut graph.nodes[op_idx]
-                                else {
-                                    unreachable!()
-                                };
-
-                                op_output_consumers.push(DataflowOperand {
-                                    node: node_idx,
-                                    output_idx: 0,
-                                });
-
-                                DataflowOperand {
-                                    node: op_idx,
-                                    output_idx: 0,
-                                }
-                            }
-                            DefiningEntity::Block(bb) => {
-                                let bb_idx = graph.bb_mapping[&bb];
-
-                                let DataflowNode::StartOfBlock {
-                                    output_consumers: bb_output_consumers,
-                                    ..
-                                } = &mut graph.nodes[bb_idx]
-                                else {
-                                    unreachable!()
-                                };
-
-                                bb_output_consumers.push(node_idx);
-
-                                DataflowOperand {
-                                    node: bb_idx,
-                                    output_idx: operand.find_index(ctx) as u32,
-                                }
-                            }
-                        })
-                        .collect::<SmallVec<[_; 2]>>();
-
-                    let DataflowNode::Stmt { operands, .. } = &mut graph.nodes[node_idx] else {
-                        unreachable!();
-                    };
-
-                    *operands = init_operands;
                 }
                 DataflowNode::Terminator {
                     operation,
@@ -196,9 +146,136 @@ impl DataflowGraph {
                         .map(|bb| graph.bb_mapping[&bb])
                         .collect();
 
-                    // TODO
+                    let dyn_operation = Operation::get_op_dyn(*operation, ctx);
+                    let dyn_operation = op_cast::<dyn BranchOpInterface>(&*dyn_operation).unwrap();
+
+                    for succ_idx in 0..operation.deref(ctx).get_num_successors() {
+                        for (output_idx, operand) in dyn_operation
+                            .successor_operands(ctx, succ_idx)
+                            .into_iter()
+                            .enumerate()
+                        {
+                            match operand.defining_entity() {
+                                DefiningEntity::Op(op) => {
+                                    let op_idx = graph.op_mapping[&op];
+
+                                    let DataflowNode::Stmt {
+                                        output_consumers: op_output_consumers,
+                                        ..
+                                    } = &mut graph.nodes[op_idx]
+                                    else {
+                                        unreachable!()
+                                    };
+
+                                    op_output_consumers.push(DataflowOutput {
+                                        node: node_idx,
+                                        output_idx_if_start: output_idx as u32,
+                                    });
+                                }
+                                DefiningEntity::Block(bb) => {
+                                    let bb_idx = graph.bb_mapping[&bb];
+
+                                    let DataflowNode::StartOfBlock {
+                                        output_consumers: bb_output_consumers,
+                                        ..
+                                    } = &mut graph.nodes[bb_idx]
+                                    else {
+                                        unreachable!()
+                                    };
+
+                                    bb_output_consumers.push(DataflowOutput {
+                                        node: node_idx,
+                                        output_idx_if_start: output_idx as u32,
+                                    });
+                                }
+                            }
+                        }
+                    }
                 }
             }
+        }
+
+        // Link up backwards references (i.e. direct operands)
+        for node_idx in graph.nodes.indices() {
+            let operands = match graph.nodes[node_idx] {
+                DataflowNode::StartOfBlock { .. } => {
+                    // (no backward operands)
+                    continue;
+                }
+                DataflowNode::Stmt { operation, .. } => {
+                    operation.deref(ctx).operands().collect::<Vec<_>>()
+                }
+                DataflowNode::Terminator { operation, .. } => {
+                    let dyn_operation = Operation::get_op_dyn(operation, ctx);
+                    op_cast::<dyn OperandSegmentInterface>(&*dyn_operation)
+                        .unwrap()
+                        .get_segment(ctx, 0)
+                }
+            };
+
+            let node_operands_init = operands
+                .into_iter()
+                .map(|operand| match operand.defining_entity() {
+                    DefiningEntity::Op(op) => {
+                        let op_idx = graph.op_mapping[&op];
+
+                        let DataflowNode::Stmt {
+                            output_consumers: op_output_consumers,
+                            ..
+                        } = &mut graph.nodes[op_idx]
+                        else {
+                            unreachable!()
+                        };
+
+                        op_output_consumers.push(DataflowOutput {
+                            node: node_idx,
+                            // We're not a start node.
+                            output_idx_if_start: 0,
+                        });
+
+                        DataflowOperand {
+                            node: op_idx,
+                            output_idx: 0,
+                        }
+                    }
+                    DefiningEntity::Block(bb) => {
+                        let bb_idx = graph.bb_mapping[&bb];
+
+                        let DataflowNode::StartOfBlock {
+                            output_consumers: bb_output_consumers,
+                            ..
+                        } = &mut graph.nodes[bb_idx]
+                        else {
+                            unreachable!()
+                        };
+
+                        bb_output_consumers.push(DataflowOutput {
+                            node: node_idx,
+                            // We're not a start node.
+                            output_idx_if_start: 0,
+                        });
+
+                        DataflowOperand {
+                            node: bb_idx,
+                            output_idx: operand.find_index(ctx) as u32,
+                        }
+                    }
+                })
+                .collect::<SmallVec<[_; 2]>>();
+
+            let (DataflowNode::Stmt {
+                operands: node_operands,
+                ..
+            }
+            | DataflowNode::Terminator {
+                direct_operands: node_operands,
+                ..
+            }) = &mut graph.nodes[node_idx]
+            else {
+                unreachable!();
+            };
+
+            *node_operands = node_operands_init;
         }
 
         graph
@@ -218,7 +295,10 @@ impl Analysis for DataflowGraph {
     where
         Self: Sized,
     {
-        todo!()
+        let op = Operation::get_op_dyn(op, ctx);
+        let op = op_cast::<dyn OneRegionInterface>(&*op).unwrap();
+
+        Ok(DataflowGraph::new(ctx, op.get_region(ctx)))
     }
 }
 
