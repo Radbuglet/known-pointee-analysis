@@ -1,8 +1,10 @@
 use index_vec::{IndexVec, define_index_type};
 use pliron::{
     basic_block::BasicBlock,
+    builtin::op_interfaces::BranchOpInterface,
     context::{Context, Ptr},
     linked_list::{ContainsLinkedList, LinkedList},
+    op::op_cast,
     operation::Operation,
     pass::{Analysis, AnalysisManager},
     region::Region,
@@ -127,7 +129,15 @@ impl DataflowGraph {
                         ..
                     } => output_state,
                 },
-                DefiningEntity::Block(bb) => todo!(),
+                DefiningEntity::Block(bb) => {
+                    let phi_node = graph.bb_map[&bb][value.find_index(ctx)];
+
+                    let DataflowNode::Phi { output_state, .. } = graph.node_defs[phi_node] else {
+                        unreachable!()
+                    };
+
+                    output_state
+                }
             }
         }
 
@@ -146,6 +156,7 @@ impl DataflowGraph {
                     let operation_r = operation.deref(ctx);
                     let operation_succ = operation_r.get_next().unwrap();
 
+                    // Determine `output_effect`
                     let (DataflowNode::Stmt {
                         input_effect: init_output_effect,
                         ..
@@ -158,6 +169,7 @@ impl DataflowGraph {
                         unreachable!()
                     };
 
+                    // Determine `input_states`
                     let init_input_states = operation_r
                         .operands()
                         .map(|value| lookup_state(&graph, ctx, value))
@@ -167,6 +179,7 @@ impl DataflowGraph {
                         graph.state_slots[input_state].push(node_idx);
                     }
 
+                    // Write out states
                     let DataflowNode::Stmt {
                         output_effect,
                         input_states,
@@ -185,9 +198,83 @@ impl DataflowGraph {
                     input_states: _,
                     output_effects: _,
                 } => {
+                    let operation = *operation;
                     let operation_r = operation.deref(ctx);
 
-                    // TODO
+                    // Determine `input_states`
+                    // TODO: possibly truncate states that are only used in forwarding
+                    let init_input_states = operation_r
+                        .operands()
+                        .map(|value| lookup_state(&graph, ctx, value))
+                        .collect::<SmallVec<[DataflowStateIdx; 2]>>();
+
+                    for &input_state in &init_input_states {
+                        graph.state_slots[input_state].push(node_idx);
+                    }
+
+                    // Determine `output_effects`
+                    let init_output_effects = operation_r
+                        .successors()
+                        .into_iter()
+                        .map(|bb| {
+                            let first_op = bb.deref(ctx).get_head().unwrap();
+
+                            let (DataflowNode::Stmt { input_effect, .. }
+                            | DataflowNode::Terminator { input_effect, .. }) =
+                                graph.node_defs[graph.op_map[&first_op]]
+                            else {
+                                unreachable!()
+                            };
+
+                            input_effect
+                        })
+                        .collect::<SmallVec<[_; 2]>>();
+
+                    // Write out states
+                    let DataflowNode::Terminator {
+                        input_states,
+                        output_effects,
+                        ..
+                    } = &mut graph.node_defs[node_idx]
+                    else {
+                        unreachable!()
+                    };
+
+                    *input_states = init_input_states;
+                    *output_effects = init_output_effects;
+
+                    // Link up phi node inputs.
+                    if operation_r.get_num_successors() == 0 {
+                        // Return and unreachable aren't considered branches.
+                        continue;
+                    }
+
+                    let operation_b = Operation::get_op_dyn(operation, ctx);
+                    let operation_b = op_cast::<dyn BranchOpInterface>(&*operation_b).unwrap();
+
+                    for succ_idx in 0..operation_r.get_num_successors() {
+                        let succ = operation_r.get_successor(succ_idx);
+                        let phi_nodes = graph.bb_map[&succ].clone();
+
+                        for (src_value, dst_node) in operation_b
+                            .successor_operands(ctx, succ_idx)
+                            .into_iter()
+                            .zip(phi_nodes)
+                        {
+                            let src_state = lookup_state(&graph, ctx, src_value);
+
+                            let DataflowNode::Phi {
+                                input_states,
+                                output_state: _,
+                            } = &mut graph.node_defs[dst_node]
+                            else {
+                                unreachable!();
+                            };
+
+                            input_states.push(src_state);
+                            graph.state_slots[src_state].push(dst_node);
+                        }
+                    }
                 }
             }
         }
