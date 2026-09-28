@@ -1,3 +1,6 @@
+// Pliron doesn't really have a dataflow analysis framework so I wrote one myself. It's terrible.
+// I'm so so very sorry.
+
 use index_vec::{IndexVec, define_index_type};
 use pliron::{
     basic_block::BasicBlock,
@@ -17,27 +20,35 @@ use smallvec::SmallVec;
 // === DataflowGraph === //
 
 define_index_type! {
-    struct DataflowNodeIdx = u32;
+    pub struct DataflowNodeIdx = u32;
 }
 
 define_index_type! {
-    struct DataflowEffectIdx = u32;
+    pub struct DataflowEffectIdx = u32;
 }
 
 define_index_type! {
-    struct DataflowStateIdx = u32;
+    pub struct DataflowStateIdx = u32;
 }
 
+define_index_type! {
+    pub struct DataflowBasicBlockArg = u32;
+}
+
+#[derive(Debug, Clone)]
 pub struct DataflowGraph {
-    node_defs: IndexVec<DataflowNodeIdx, DataflowNode>,
-    op_map: FxHashMap<Ptr<Operation>, DataflowNodeIdx>,
-    bb_map: FxHashMap<Ptr<BasicBlock>, SmallVec<[DataflowNodeIdx; 2]>>,
-    effect_slots: IndexVec<DataflowEffectIdx, DataflowNodeIdx>,
-    state_slots: IndexVec<DataflowStateIdx, SmallVec<[DataflowNodeIdx; 1]>>,
+    pub node_defs: IndexVec<DataflowNodeIdx, DataflowGraphNode>,
+    pub effect_defs: IndexVec<DataflowEffectIdx, DataflowGraphEffect>,
+    pub state_defs: IndexVec<DataflowStateIdx, DataflowGraphState>,
+    pub op_map: FxHashMap<Ptr<Operation>, DataflowNodeIdx>,
+    pub bb_map: FxHashMap<Ptr<BasicBlock>, SmallVec<[DataflowNodeIdx; 2]>>,
 }
 
-enum DataflowNode {
+#[derive(Debug, Clone)]
+pub enum DataflowGraphNode {
     Phi {
+        basic_block: Ptr<BasicBlock>,
+        basic_block_arg: DataflowBasicBlockArg,
         input_states: SmallVec<[DataflowStateIdx; 2]>,
         output_state: DataflowStateIdx,
     },
@@ -56,14 +67,25 @@ enum DataflowNode {
     },
 }
 
+#[derive(Debug, Clone)]
+pub struct DataflowGraphEffect {
+    pub input_to: DataflowNodeIdx,
+}
+
+#[derive(Debug, Clone)]
+pub struct DataflowGraphState {
+    pub defined_by: DataflowNodeIdx,
+    pub input_to: SmallVec<[DataflowNodeIdx; 1]>,
+}
+
 impl DataflowGraph {
     pub fn new(ctx: &Context, region: Ptr<Region>) -> Self {
         let mut graph = DataflowGraph {
             node_defs: IndexVec::default(),
+            effect_defs: IndexVec::default(),
+            state_defs: IndexVec::default(),
             op_map: FxHashMap::default(),
             bb_map: FxHashMap::default(),
-            effect_slots: IndexVec::default(),
-            state_slots: IndexVec::default(),
         };
 
         // Create placeholder phi nodes, statements, and terminators.
@@ -71,16 +93,21 @@ impl DataflowGraph {
             for operation in basic_block.deref(ctx).iter(ctx) {
                 let operation_r = operation.deref(ctx);
 
-                let input_effect = graph.effect_slots.push(graph.node_defs.next_idx());
+                let input_effect = graph.effect_defs.push(DataflowGraphEffect {
+                    input_to: graph.node_defs.next_idx(),
+                });
 
                 if operation_r.get_next().is_some() {
                     let output_state = match operation_r.get_num_results() {
                         0 => None,
-                        1 => Some(graph.state_slots.push(SmallVec::from_iter([]))),
+                        1 => Some(graph.state_defs.push(DataflowGraphState {
+                            defined_by: graph.node_defs.next_idx(),
+                            input_to: SmallVec::new(),
+                        })),
                         _ => unreachable!(),
                     };
 
-                    let node_idx = graph.node_defs.push(DataflowNode::Stmt {
+                    let node_idx = graph.node_defs.push(DataflowGraphNode::Stmt {
                         operation,
                         input_effect: input_effect,
                         output_effect: DataflowEffectIdx::from_usize(DataflowEffectIdx::MAX_INDEX),
@@ -90,7 +117,7 @@ impl DataflowGraph {
 
                     graph.op_map.insert(operation, node_idx);
                 } else {
-                    let node_idx = graph.node_defs.push(DataflowNode::Terminator {
+                    let node_idx = graph.node_defs.push(DataflowGraphNode::Terminator {
                         operation,
                         input_effect,
                         input_states: SmallVec::new(),
@@ -102,10 +129,15 @@ impl DataflowGraph {
             }
 
             let argument_phi_nodes = (0..basic_block.deref(ctx).get_num_arguments())
-                .map(|_| {
-                    let output_state = graph.state_slots.push(SmallVec::new());
+                .map(|basic_block_arg| {
+                    let output_state = graph.state_defs.push(DataflowGraphState {
+                        defined_by: graph.node_defs.next_idx(),
+                        input_to: SmallVec::new(),
+                    });
 
-                    graph.node_defs.push(DataflowNode::Phi {
+                    graph.node_defs.push(DataflowGraphNode::Phi {
+                        basic_block,
+                        basic_block_arg: DataflowBasicBlockArg::from_usize(basic_block_arg),
                         input_states: SmallVec::new(),
                         output_state,
                     })
@@ -119,12 +151,12 @@ impl DataflowGraph {
         fn lookup_state(graph: &DataflowGraph, ctx: &Context, value: Value) -> DataflowStateIdx {
             match value.defining_entity() {
                 DefiningEntity::Op(op) => match graph.node_defs[graph.op_map[&op]] {
-                    DataflowNode::Phi { .. }
-                    | DataflowNode::Terminator { .. }
-                    | DataflowNode::Stmt {
+                    DataflowGraphNode::Phi { .. }
+                    | DataflowGraphNode::Terminator { .. }
+                    | DataflowGraphNode::Stmt {
                         output_state: None, ..
                     } => unreachable!(),
-                    DataflowNode::Stmt {
+                    DataflowGraphNode::Stmt {
                         output_state: Some(output_state),
                         ..
                     } => output_state,
@@ -132,7 +164,8 @@ impl DataflowGraph {
                 DefiningEntity::Block(bb) => {
                     let phi_node = graph.bb_map[&bb][value.find_index(ctx)];
 
-                    let DataflowNode::Phi { output_state, .. } = graph.node_defs[phi_node] else {
+                    let DataflowGraphNode::Phi { output_state, .. } = graph.node_defs[phi_node]
+                    else {
                         unreachable!()
                     };
 
@@ -143,10 +176,10 @@ impl DataflowGraph {
 
         for node_idx in graph.node_defs.indices() {
             match &graph.node_defs[node_idx] {
-                DataflowNode::Phi { .. } => {
+                DataflowGraphNode::Phi { .. } => {
                     // (connected in terminators)
                 }
-                DataflowNode::Stmt {
+                DataflowGraphNode::Stmt {
                     operation,
                     input_effect: _, // (already init)
                     output_effect: _,
@@ -157,11 +190,11 @@ impl DataflowGraph {
                     let operation_succ = operation_r.get_next().unwrap();
 
                     // Determine `output_effect`
-                    let (DataflowNode::Stmt {
+                    let (DataflowGraphNode::Stmt {
                         input_effect: init_output_effect,
                         ..
                     }
-                    | DataflowNode::Terminator {
+                    | DataflowGraphNode::Terminator {
                         input_effect: init_output_effect,
                         ..
                     }) = graph.node_defs[graph.op_map[&operation_succ]]
@@ -176,11 +209,11 @@ impl DataflowGraph {
                         .collect::<SmallVec<[DataflowStateIdx; 2]>>();
 
                     for &input_state in &init_input_states {
-                        graph.state_slots[input_state].push(node_idx);
+                        graph.state_defs[input_state].input_to.push(node_idx);
                     }
 
                     // Write out states
-                    let DataflowNode::Stmt {
+                    let DataflowGraphNode::Stmt {
                         output_effect,
                         input_states,
                         ..
@@ -192,7 +225,7 @@ impl DataflowGraph {
                     *output_effect = init_output_effect;
                     *input_states = init_input_states;
                 }
-                DataflowNode::Terminator {
+                DataflowGraphNode::Terminator {
                     operation,
                     input_effect: _, // (already init)
                     input_states: _,
@@ -209,7 +242,7 @@ impl DataflowGraph {
                         .collect::<SmallVec<[DataflowStateIdx; 2]>>();
 
                     for &input_state in &init_input_states {
-                        graph.state_slots[input_state].push(node_idx);
+                        graph.state_defs[input_state].input_to.push(node_idx);
                     }
 
                     // Determine `output_effects`
@@ -219,8 +252,8 @@ impl DataflowGraph {
                         .map(|bb| {
                             let first_op = bb.deref(ctx).get_head().unwrap();
 
-                            let (DataflowNode::Stmt { input_effect, .. }
-                            | DataflowNode::Terminator { input_effect, .. }) =
+                            let (DataflowGraphNode::Stmt { input_effect, .. }
+                            | DataflowGraphNode::Terminator { input_effect, .. }) =
                                 graph.node_defs[graph.op_map[&first_op]]
                             else {
                                 unreachable!()
@@ -231,7 +264,7 @@ impl DataflowGraph {
                         .collect::<SmallVec<[_; 2]>>();
 
                     // Write out states
-                    let DataflowNode::Terminator {
+                    let DataflowGraphNode::Terminator {
                         input_states,
                         output_effects,
                         ..
@@ -263,16 +296,16 @@ impl DataflowGraph {
                         {
                             let src_state = lookup_state(&graph, ctx, src_value);
 
-                            let DataflowNode::Phi {
-                                input_states,
-                                output_state: _,
+                            let DataflowGraphNode::Phi {
+                                input_states: dst_input_states,
+                                ..
                             } = &mut graph.node_defs[dst_node]
                             else {
                                 unreachable!();
                             };
 
-                            input_states.push(src_state);
-                            graph.state_slots[src_state].push(dst_node);
+                            dst_input_states.push(src_state);
+                            graph.state_defs[src_state].input_to.push(dst_node);
                         }
                     }
                 }
@@ -299,3 +332,29 @@ impl Analysis for DataflowGraph {
         Ok(DataflowGraph::new(ctx, op.deref(ctx).get_region(0)))
     }
 }
+
+// === DataflowAnalysis === //
+
+pub trait DataflowAnalysis<'c>: Sized {
+    type Effect: DataflowLattice<Self>;
+    type State: DataflowLattice<Self>;
+
+    fn ctx(&self) -> &'c Context;
+
+    fn graph(&self) -> &'c DataflowGraph;
+
+    fn run(&mut self) {
+        struct Lattice<S> {
+            state: S,
+            dirty: bool,
+        }
+
+        let ctx = self.ctx();
+        let graph = self.graph();
+
+        let mut states = IndexVec::<DataflowStateIdx, Lattice<Self::State>>::from_iter([]);
+        let mut effects = IndexVec::<DataflowStateIdx, Lattice<Self::Effect>>::default();
+    }
+}
+
+pub trait DataflowLattice<D> {}
