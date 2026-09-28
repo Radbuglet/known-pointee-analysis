@@ -70,39 +70,68 @@ impl From<DataflowGraphNodeTerminator> for DataflowGraphNode {
 }
 
 macro_rules! make_conversions {
+    ($(,)?) => {
+        // (recursion base case)
+    };
     (
-        $($name:ident => $ty:ty : $ident:ident in $pat:pat),*
-        $(,)?
+        copy $name:ident => $ty:ty : $ident:ident in $pat:pat
+        $(, $($rest:tt)*)?
+    ) => {
+        paste::paste! {
+            #[allow(unused)]
+            impl DataflowGraphNode {
+                pub fn [< as_ $name >](&self) -> Option<$ty> {
+                    self.[< as_ $name _ref >]().copied()
+                }
+
+                pub fn [< unwrap_ $name >](&self) -> $ty {
+                    self.[< as_ $name >]().unwrap()
+                }
+            }
+        }
+
+        make_conversions! {
+            $name => $ty : $ident in $pat
+            $(, $($rest)*)?
+        }
+    };
+    (
+        $name:ident => $ty:ty : $ident:ident in $pat:pat
+        $(, $($rest:tt)*)?
     ) => {
         // Paste my beloved.
         paste::paste! {
             #[allow(unused)]
             impl DataflowGraphNode {
-                $(
-                    pub fn [< as_ $name >](&self) -> Option<&$ty> {
-                        match self {
-                            $pat => Some($ident),
-                            _ => None,
-                        }
+                pub fn [< as_ $name _ref >](&self) -> Option<&$ty> {
+                    match self {
+                        $pat => Some($ident),
+                        _ => None,
                     }
+                }
 
-                    pub fn [< as_ $name _mut >](&mut self) -> Option<&mut $ty> {
-                        match self {
-                            $pat => Some($ident),
-                            _ => None,
-                        }
+                pub fn [< as_ $name _mut >](&mut self) -> Option<&mut $ty> {
+                    match self {
+                        $pat => Some($ident),
+                        _ => None,
                     }
+                }
 
-                    pub fn [< unwrap_ $name >](&self) -> &$ty {
-                        self.[< as_ $name >]().unwrap()
-                    }
+                pub fn [< unwrap_ $name _ref >](&self) -> &$ty {
+                    self.[< as_ $name _ref >]().unwrap()
+                }
 
-                    pub fn [< unwrap_ $name _mut >](&mut self) -> &mut $ty {
-                        self.[< as_ $name _mut >]().unwrap()
-                    }
-                )*
+                pub fn [< unwrap_ $name _mut >](&mut self) -> &mut $ty {
+                    self.[< as_ $name _mut >]().unwrap()
+                }
             }
         }
+
+        $(
+            make_conversions! {
+                $($rest)*
+            }
+        )?
     };
 }
 
@@ -110,12 +139,15 @@ make_conversions! {
     phi => DataflowGraphNodePhi : v in Self::Phi(v),
     stmt => DataflowGraphNodeStmt : v in Self::Stmt(v),
     terminator => DataflowGraphNodeTerminator : v in Self::Terminator(v),
-    output_state => DataflowStateIdx : v in
+    copy output_state => DataflowStateIdx : v in
         | Self::Phi(DataflowGraphNodePhi { output_state: v, .. })
         | Self::Stmt(DataflowGraphNodeStmt { output_state: Some(v), .. }),
-    input_effect => DataflowEffectIdx : v in
+    copy input_effect => DataflowEffectIdx : v in
         | Self::Stmt(DataflowGraphNodeStmt { input_effect: v, .. })
         | Self::Terminator(DataflowGraphNodeTerminator { input_effect: v, .. }),
+    copy operation => Ptr<Operation> : v in
+        | Self::Stmt(DataflowGraphNodeStmt { operation: v, .. })
+        | Self::Terminator(DataflowGraphNodeTerminator { operation: v, .. }),
 }
 
 #[derive(Debug, Clone)]
@@ -237,10 +269,10 @@ impl DataflowGraph {
         // Connect up everything.
         fn lookup_state(graph: &DataflowGraph, ctx: &Context, value: Value) -> DataflowStateIdx {
             match value.defining_entity() {
-                DefiningEntity::Op(op) => *graph.node_defs[graph.op_map[&op]].unwrap_output_state(),
+                DefiningEntity::Op(op) => graph.node_defs[graph.op_map[&op]].unwrap_output_state(),
                 DefiningEntity::Block(bb) => {
                     let phi_node = graph.bb_map[&bb][value.find_index(ctx)];
-                    *graph.node_defs[phi_node].unwrap_output_state()
+                    graph.node_defs[phi_node].unwrap_output_state()
                 }
             }
         }
@@ -255,9 +287,8 @@ impl DataflowGraph {
                     let operation_succ = operation_r.get_next().unwrap();
 
                     // Determine `output_effect`
-                    let init_output_effect = *graph.node_defs[graph.op_map[&operation_succ]]
-                        .as_input_effect()
-                        .unwrap();
+                    let init_output_effect =
+                        graph.node_defs[graph.op_map[&operation_succ]].unwrap_input_effect();
 
                     // Determine `input_states`
                     let init_input_states = operation_r
@@ -304,7 +335,7 @@ impl DataflowGraph {
                         .into_iter()
                         .map(|bb| {
                             let first_op = bb.deref(ctx).get_head().unwrap();
-                            *graph.node_defs[graph.op_map[&first_op]].unwrap_input_effect()
+                            graph.node_defs[graph.op_map[&first_op]].unwrap_input_effect()
                         })
                         .collect::<SmallVec<[_; 2]>>();
 
