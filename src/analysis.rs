@@ -29,9 +29,7 @@ impl Analysis for PointeeConstantsFacts {
             return Ok(Self {});
         }
 
-        let graph = analyses
-            .compute_analysis::<DataflowGraph>(raw_op, ctx)
-            .unwrap();
+        let graph = analyses.get_analysis::<DataflowGraph>(raw_op, ctx).unwrap();
 
         Ok(Self {})
     }
