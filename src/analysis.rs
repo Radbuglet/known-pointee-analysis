@@ -25,9 +25,9 @@ impl Analysis for PointeeConstantsFacts {
             return Ok(Self {});
         };
 
-        let Some(body) = op.get_region(ctx) else {
+        if op.get_region(ctx).is_none() {
             return Ok(Self {});
-        };
+        }
 
         let graph = analyses
             .compute_analysis::<DataflowGraph>(raw_op, ctx)

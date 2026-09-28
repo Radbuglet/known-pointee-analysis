@@ -1,7 +1,7 @@
 use index_vec::{IndexVec, define_index_type};
 use pliron::{
     basic_block::BasicBlock,
-    builtin::op_interfaces::{BranchOpInterface, OneRegionInterface, OperandSegmentInterface},
+    builtin::op_interfaces::{BranchOpInterface, OperandSegmentInterface},
     context::{Context, Ptr},
     linked_list::{ContainsLinkedList, LinkedList},
     op::op_cast,
@@ -146,6 +146,11 @@ impl DataflowGraph {
                         .map(|bb| graph.bb_mapping[&bb])
                         .collect();
 
+                    if operation.deref(ctx).get_num_successors() == 0 {
+                        // For return and friends, which are not considered branches.
+                        continue;
+                    }
+
                     let dyn_operation = Operation::get_op_dyn(*operation, ctx);
                     let dyn_operation = op_cast::<dyn BranchOpInterface>(&*dyn_operation).unwrap();
 
@@ -207,9 +212,14 @@ impl DataflowGraph {
                 }
                 DataflowNode::Terminator { operation, .. } => {
                     let dyn_operation = Operation::get_op_dyn(operation, ctx);
-                    op_cast::<dyn OperandSegmentInterface>(&*dyn_operation)
-                        .unwrap()
-                        .get_segment(ctx, 0)
+
+                    // TODO: there has to be a better way to find these :(
+                    if let Some(segments) = op_cast::<dyn OperandSegmentInterface>(&*dyn_operation)
+                    {
+                        segments.get_segment(ctx, 0)
+                    } else {
+                        operation.deref(ctx).operands().collect::<Vec<_>>()
+                    }
                 }
             };
 
@@ -295,10 +305,7 @@ impl Analysis for DataflowGraph {
     where
         Self: Sized,
     {
-        let op = Operation::get_op_dyn(op, ctx);
-        let op = op_cast::<dyn OneRegionInterface>(&*op).unwrap();
-
-        Ok(DataflowGraph::new(ctx, op.get_region(ctx)))
+        Ok(DataflowGraph::new(ctx, op.deref(ctx).get_region(0)))
     }
 }
 
