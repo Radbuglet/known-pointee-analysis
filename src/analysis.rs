@@ -2,9 +2,8 @@ use core::fmt;
 use std::rc::Rc;
 
 use pliron::{
-    attribute::{Attribute, attr_cast},
+    attribute::Attribute,
     builtin::{
-        attr_interfaces::TypedAttrInterface,
         attributes::IntegerAttr,
         op_interfaces::{AtMostOneRegionInterface as _, OneResultInterface},
         types::IntegerType,
@@ -18,7 +17,7 @@ use pliron::{
     value::Value,
 };
 use pliron_llvm::{
-    ops::{BrOp, CondBrOp, ConstantOp, FuncOp, LoadOp, StoreOp, TruncOp},
+    ops::{BrOp, CondBrOp, ConstantOp, FuncOp, ICmpOp, LoadOp, StoreOp, TruncOp},
     types::PointerType,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -191,6 +190,7 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
                 (&*operation.get_value(ctx) as &dyn Attribute).downcast_ref::<IntegerAttr>()
         {
             output_effect.set_value_ref(input_effect);
+
             output_state
                 .unwrap()
                 .set_value(OptimisticScalar::Known(constant.value().to_u64()));
@@ -208,6 +208,34 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
             let mut new_output_state = input_states[0].clone();
             new_output_state.map(|value| value & ((1u64 << int_ty.width()) - 1));
             output_state.unwrap().set_value(new_output_state);
+
+            return;
+        }
+
+        // ICmp
+        if let Some(_operation) = Operation::get_op::<ICmpOp>(operation, ctx) {
+            output_effect.set_value_ref(input_effect);
+
+            let [lhs, rhs] = input_states else {
+                unreachable!()
+            };
+
+            output_state.unwrap().set_value(match (lhs, rhs) {
+                (OptimisticScalar::Known(lhs), OptimisticScalar::Known(rhs)) => {
+                    OptimisticScalar::Known(if lhs == rhs { 1 } else { 0 })
+                }
+                (OptimisticScalar::Known(known), OptimisticScalar::Unknown(Some(unknown))) => {
+                    let mut branches = unknown.branches.clone();
+
+                    branches.map(|potential| if potential == *known { 1 } else { 0 });
+
+                    OptimisticScalar::Unknown(Some(LoadHypothesis {
+                        read_src: unknown.read_src,
+                        branches,
+                    }))
+                }
+                _ => OptimisticScalar::Unknown(None),
+            });
 
             return;
         }
@@ -389,6 +417,12 @@ impl KnownPointeeMap {
         Rc::make_mut(&mut self.raw)
             .retain(|key, value| other.raw.get(key).is_none_or(|other| value == other));
     }
+
+    pub fn map(&mut self, mut f: impl FnMut(u64) -> u64) {
+        for value in Rc::make_mut(&mut self.raw).values_mut() {
+            *value = f(*value);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -416,9 +450,7 @@ impl OptimisticScalar {
                 *value = f(*value);
             }
             OptimisticScalar::Unknown(Some(load_hypothesis)) => {
-                for value in Rc::make_mut(&mut load_hypothesis.branches.raw).values_mut() {
-                    *value = f(*value);
-                }
+                load_hypothesis.branches.map(f);
             }
             OptimisticScalar::Unknown(None) => {
                 // (nothing to update)

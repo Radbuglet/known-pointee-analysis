@@ -374,7 +374,6 @@ impl DataflowGraph {
                     let operation_r = operation.deref(ctx);
 
                     // Determine `input_values`
-                    // TODO: possibly truncate values that are only used in forwarding
                     let init_input_values = operation_r
                         .operands()
                         .map(|value| graph.lookup_value_idx(ctx, value))

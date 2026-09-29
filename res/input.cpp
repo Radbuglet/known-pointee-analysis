@@ -1,56 +1,54 @@
 #include <cstdint>
 
-void panic();
+[[noreturn]] void panic();
 
-bool *unrelated(bool *input);
+void arbitrary_side_effect();
 
-void meow(bool *foo, bool *bar)
+void meow(uint32_t *foo, uint32_t *bar)
 {
-    // Iteration 1
-    if (!*foo)
+    // First iteration
+    if (*foo == 1)
     {
-        *foo = true;
+        *foo = 2;
     }
     else
     {
         panic();
     }
 
-    if (!*bar)
+    if (*bar == 3)
     {
-        *bar = true;
+        *bar = 4;
     }
     else
     {
         panic();
     }
 
-    foo = unrelated(foo);
+    *foo = 1;
+    *bar = 3;
 
-    *foo = false;
-    *bar = false;
+    arbitrary_side_effect();
 
-    // Iteration 2
-    if (!*foo)
+    // Second iteration
+    if (*foo == 1)
     {
-        *foo = true;
+        *foo = 2;
     }
     else
     {
         panic();
     }
 
-    if (!*bar)
+    if (*bar == 3)
     {
-        *bar = true;
+        *bar = 4;
     }
     else
     {
         panic();
     }
 
-    foo = unrelated(foo);
-
-    *foo = false;
-    *bar = false;
+    *foo = 1;
+    *bar = 3;
 }
