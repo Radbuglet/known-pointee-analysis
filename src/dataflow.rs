@@ -538,6 +538,21 @@ impl<E, S> DataflowScratch<E, S> {
         &self.values[effect].lattice
     }
 
+    fn take_from_work_list(&mut self) -> Option<DataflowSlotIdx> {
+        let elem = self.work_list.pop_front()?;
+
+        match elem {
+            DataflowSlotIdx::Effect(idx) => {
+                self.effects[idx].in_work_list = false;
+            }
+            DataflowSlotIdx::Value(idx) => {
+                self.values[idx].in_work_list = false;
+            }
+        }
+
+        Some(elem)
+    }
+
     fn mark_dirty(&mut self, target: DataflowSlotIdx) {
         match target {
             DataflowSlotIdx::Effect(idx) => {
@@ -625,14 +640,12 @@ pub trait DataflowAnalysis<'c>: Sized {
             .extend(graph.effect_defs.indices().map(|effect| {
                 let is_input = graph.is_input_effect(ctx, effect);
 
-                if is_input {
-                    scratch.work_list.push_back(effect.into());
-                }
+                scratch.work_list.push_back(effect.into());
 
                 DataflowSlot {
                     lattice: self.init_effect(is_input),
                     user_marked_dirty: false,
-                    in_work_list: is_input,
+                    in_work_list: true,
                 }
             }));
 
@@ -642,19 +655,17 @@ pub trait DataflowAnalysis<'c>: Sized {
             .extend(graph.value_defs.indices().map(|value| {
                 let is_input = graph.is_input_value(ctx, value);
 
-                if is_input {
-                    scratch.work_list.push_back(value.into());
-                }
+                scratch.work_list.push_back(value.into());
 
                 DataflowSlot {
                     lattice: self.init_value(is_input),
                     user_marked_dirty: false,
-                    in_work_list: is_input,
+                    in_work_list: true,
                 }
             }));
 
         // Run dataflow
-        while let Some(affected_slot) = scratch.work_list.pop_front() {
+        while let Some(affected_slot) = scratch.take_from_work_list() {
             for &affected_node in graph.affected_nodes(affected_slot) {
                 match &graph.node_defs[affected_node] {
                     DataflowGraphNode::EffectPhi(DataflowGraphNodeEffectPhi {
@@ -839,6 +850,8 @@ unsafe impl Sync for VecOfPtrScratch {}
 
 impl VecOfPtrScratch {
     pub fn builder<'i, T: SizedPointer>(&'i mut self) -> VecOfPtrScratchBuilder<'i, T> {
+        self.buffer.clear();
+
         VecOfPtrScratchBuilder {
             _ty: PhantomData,
             buffer: &mut self.buffer,

@@ -131,6 +131,7 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
         let ctx = self.ctx();
         eprintln!("{}", operation.disp(ctx));
 
+        /*
         // Constant
         if let Some(operation) = Operation::get_op::<ConstantOp>(operation, ctx) {
             println!("{}", operation.get_value(ctx).disp(ctx));
@@ -165,6 +166,7 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
 
             return;
         }
+        */
 
         // Fallback
         if let Some(output_state) = output_state {
