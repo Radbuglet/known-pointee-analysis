@@ -184,6 +184,11 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
     ) {
         let ctx = self.ctx();
 
+        if input_effect.is_dead {
+            output_effect.set_value_ref(input_effect);
+            return;
+        }
+
         // Constant
         if let Some(operation) = Operation::get_op::<ConstantOp>(operation, ctx)
             && let Some(constant) =
@@ -281,6 +286,14 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
     ) {
         let ctx = self.ctx();
 
+        if input_effect.is_dead {
+            for output_effect in output_effects {
+                output_effect.set_value_ref(input_effect);
+            }
+
+            return;
+        }
+
         // Conditional branch
         if let Some(_operation) = Operation::get_op::<CondBrOp>(operation, ctx) {
             let cond = input_states[0];
@@ -293,6 +306,7 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
                     for (output, taken_if) in [(truthy, 1), (falsy, 0)] {
                         let mut new_output = input_effect.clone();
 
+                        // FIXME: This is wrong and I need to think about it a bit more.
                         for (&if_read, &we_get) in hypothesis.branches.raw.iter() {
                             if taken_if != we_get {
                                 new_output.no_alias.add(hypothesis.read_src, if_read);
@@ -302,8 +316,14 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
                         output.set_value(new_output);
                     }
                 }
-                // TODO: conditional dead code elimination for known values
-                OptimisticScalar::Known(_) | OptimisticScalar::Unknown(None) => {
+                OptimisticScalar::Known(value) => {
+                    for (output, taken_if) in [(truthy, 1), (falsy, 0)] {
+                        let mut new_output = input_effect.clone();
+                        new_output.is_dead = *value != taken_if;
+                        output.set_value(new_output);
+                    }
+                }
+                OptimisticScalar::Unknown(None) => {
                     for output_effect in output_effects {
                         output_effect.set_value_ref(input_effect);
                     }
@@ -339,6 +359,7 @@ pub struct PtrIdx(pub u32);
 
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub struct PointeeEffectLattice {
+    pub is_dead: bool,
     pub no_alias: NoAliasSet,
     pub known_pointees: KnownPointeeMap,
 }
@@ -380,6 +401,7 @@ impl PointeeEffectLattice {
     }
 
     pub fn join(&mut self, other: &Self) {
+        self.is_dead &= other.is_dead;
         self.no_alias.join(&other.no_alias);
         self.known_pointees.join(&other.known_pointees);
     }

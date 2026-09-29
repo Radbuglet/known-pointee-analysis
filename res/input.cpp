@@ -28,7 +28,7 @@ void meow(uint32_t *foo, uint32_t *bar)
     *foo = 1;
     *bar = 3;
 
-    arbitrary_side_effect();
+    // arbitrary_side_effect();
 
     // Second iteration
     if (*foo == 1)
