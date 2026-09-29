@@ -32,7 +32,7 @@ define_index_type! {
 #[derive(Debug, Copy, Clone)]
 pub enum DataflowSlotIdx {
     Effect(DataflowEffectIdx),
-    State(DataflowStateIdx),
+    Value(DataflowValueIdx),
 }
 
 impl From<DataflowEffectIdx> for DataflowSlotIdx {
@@ -41,9 +41,9 @@ impl From<DataflowEffectIdx> for DataflowSlotIdx {
     }
 }
 
-impl From<DataflowStateIdx> for DataflowSlotIdx {
-    fn from(value: DataflowStateIdx) -> Self {
-        Self::State(value)
+impl From<DataflowValueIdx> for DataflowSlotIdx {
+    fn from(value: DataflowValueIdx) -> Self {
+        Self::Value(value)
     }
 }
 
@@ -52,14 +52,14 @@ define_index_type! {
 }
 
 define_index_type! {
-    pub struct DataflowStateIdx = u32;
+    pub struct DataflowValueIdx = u32;
 }
 
 #[derive(Debug, Clone)]
 pub struct DataflowGraph {
     pub node_defs: IndexVec<DataflowNodeIdx, DataflowGraphNode>,
     pub effect_defs: IndexVec<DataflowEffectIdx, DataflowGraphEffect>,
-    pub state_defs: IndexVec<DataflowStateIdx, DataflowGraphState>,
+    pub value_defs: IndexVec<DataflowValueIdx, DataflowGraphValue>,
     pub op_map: FxHashMap<Ptr<Operation>, DataflowNodeIdx>,
     pub bb_map: FxHashMap<Ptr<BasicBlock>, SmallVec<[DataflowNodeIdx; 2]>>,
 }
@@ -159,9 +159,9 @@ make_conversions! {
     phi => DataflowGraphNodePhi : v in Self::Phi(v),
     stmt => DataflowGraphNodeStmt : v in Self::Stmt(v),
     terminator => DataflowGraphNodeTerminator : v in Self::Terminator(v),
-    copy output_state => DataflowStateIdx : v in
-        | Self::Phi(DataflowGraphNodePhi { output_state: v, .. })
-        | Self::Stmt(DataflowGraphNodeStmt { output_state: Some(v), .. }),
+    copy output_value => DataflowValueIdx : v in
+        | Self::Phi(DataflowGraphNodePhi { output_value: v, .. })
+        | Self::Stmt(DataflowGraphNodeStmt { output_value: Some(v), .. }),
     copy input_effect => DataflowEffectIdx : v in
         | Self::Stmt(DataflowGraphNodeStmt { input_effect: v, .. })
         | Self::Terminator(DataflowGraphNodeTerminator { input_effect: v, .. }),
@@ -174,8 +174,8 @@ make_conversions! {
 pub struct DataflowGraphNodePhi {
     pub basic_block: Ptr<BasicBlock>,
     pub basic_block_arg: DataflowBasicBlockArg,
-    pub input_states: SmallVec<[DataflowStateIdx; 2]>,
-    pub output_state: DataflowStateIdx,
+    pub input_values: SmallVec<[DataflowValueIdx; 2]>,
+    pub output_value: DataflowValueIdx,
 }
 
 #[derive(Debug, Clone)]
@@ -183,15 +183,15 @@ pub struct DataflowGraphNodeStmt {
     pub operation: Ptr<Operation>,
     pub input_effect: DataflowEffectIdx,
     pub output_effect: DataflowEffectIdx,
-    pub input_states: SmallVec<[DataflowStateIdx; 2]>,
-    pub output_state: Option<DataflowStateIdx>,
+    pub input_values: SmallVec<[DataflowValueIdx; 2]>,
+    pub output_value: Option<DataflowValueIdx>,
 }
 
 #[derive(Debug, Clone)]
 pub struct DataflowGraphNodeTerminator {
     pub operation: Ptr<Operation>,
     pub input_effect: DataflowEffectIdx,
-    pub input_states: SmallVec<[DataflowStateIdx; 2]>,
+    pub input_values: SmallVec<[DataflowValueIdx; 2]>,
     pub output_effects: SmallVec<[DataflowEffectIdx; 2]>,
 }
 
@@ -201,7 +201,7 @@ pub struct DataflowGraphEffect {
 }
 
 #[derive(Debug, Clone)]
-pub struct DataflowGraphState {
+pub struct DataflowGraphValue {
     pub defined_by: DataflowNodeIdx,
     pub input_to: SmallVec<[DataflowNodeIdx; 1]>,
 }
@@ -211,7 +211,7 @@ impl DataflowGraph {
         let mut graph = DataflowGraph {
             node_defs: IndexVec::default(),
             effect_defs: IndexVec::default(),
-            state_defs: IndexVec::default(),
+            value_defs: IndexVec::default(),
             op_map: FxHashMap::default(),
             bb_map: FxHashMap::default(),
         };
@@ -226,9 +226,9 @@ impl DataflowGraph {
                 });
 
                 if operation_r.get_next().is_some() {
-                    let output_state = match operation_r.get_num_results() {
+                    let output_value = match operation_r.get_num_results() {
                         0 => None,
-                        1 => Some(graph.state_defs.push(DataflowGraphState {
+                        1 => Some(graph.value_defs.push(DataflowGraphValue {
                             defined_by: graph.node_defs.next_idx(),
                             input_to: SmallVec::new(),
                         })),
@@ -242,8 +242,8 @@ impl DataflowGraph {
                             output_effect: DataflowEffectIdx::from_usize(
                                 DataflowEffectIdx::MAX_INDEX,
                             ),
-                            input_states: SmallVec::new(),
-                            output_state,
+                            input_values: SmallVec::new(),
+                            output_value,
                         }
                         .into(),
                     );
@@ -254,7 +254,7 @@ impl DataflowGraph {
                         DataflowGraphNodeTerminator {
                             operation,
                             input_effect,
-                            input_states: SmallVec::new(),
+                            input_values: SmallVec::new(),
                             output_effects: SmallVec::new(),
                         }
                         .into(),
@@ -266,7 +266,7 @@ impl DataflowGraph {
 
             let argument_phi_nodes = (0..basic_block.deref(ctx).get_num_arguments())
                 .map(|basic_block_arg| {
-                    let output_state = graph.state_defs.push(DataflowGraphState {
+                    let output_value = graph.value_defs.push(DataflowGraphValue {
                         defined_by: graph.node_defs.next_idx(),
                         input_to: SmallVec::new(),
                     });
@@ -275,8 +275,8 @@ impl DataflowGraph {
                         DataflowGraphNodePhi {
                             basic_block,
                             basic_block_arg: DataflowBasicBlockArg::from_usize(basic_block_arg),
-                            input_states: SmallVec::new(),
-                            output_state,
+                            input_values: SmallVec::new(),
+                            output_value,
                         }
                         .into(),
                     )
@@ -300,27 +300,27 @@ impl DataflowGraph {
                     let init_output_effect =
                         graph.node_defs[graph.op_map[&operation_succ]].unwrap_input_effect();
 
-                    // Determine `input_states`
-                    let init_input_states = operation_r
+                    // Determine `input_values`
+                    let init_input_values = operation_r
                         .operands()
-                        .map(|value| graph.lookup_value_state(ctx, value))
-                        .collect::<SmallVec<[DataflowStateIdx; 2]>>();
+                        .map(|value| graph.lookup_value_idx(ctx, value))
+                        .collect::<SmallVec<[DataflowValueIdx; 2]>>();
 
-                    for &input_state in &init_input_states {
-                        graph.state_defs[input_state].input_to.push(node_idx);
+                    for &input_value in &init_input_values {
+                        graph.value_defs[input_value].input_to.push(node_idx);
                     }
 
-                    // Write out states
+                    // Write out connections
                     let DataflowGraphNodeStmt {
                         operation: _,
                         input_effect: _, // (already init)
                         output_effect,
-                        input_states,
-                        output_state: _, // (already init)
+                        input_values,
+                        output_value: _, // (already init)
                     } = graph.node_defs[node_idx].unwrap_stmt_mut();
 
                     *output_effect = init_output_effect;
-                    *input_states = init_input_states;
+                    *input_values = init_input_values;
                 }
                 DataflowGraphNode::Terminator(DataflowGraphNodeTerminator {
                     operation, ..
@@ -328,15 +328,15 @@ impl DataflowGraph {
                     let operation = *operation;
                     let operation_r = operation.deref(ctx);
 
-                    // Determine `input_states`
-                    // TODO: possibly truncate states that are only used in forwarding
-                    let init_input_states = operation_r
+                    // Determine `input_values`
+                    // TODO: possibly truncate values that are only used in forwarding
+                    let init_input_values = operation_r
                         .operands()
-                        .map(|value| graph.lookup_value_state(ctx, value))
-                        .collect::<SmallVec<[DataflowStateIdx; 2]>>();
+                        .map(|value| graph.lookup_value_idx(ctx, value))
+                        .collect::<SmallVec<[DataflowValueIdx; 2]>>();
 
-                    for &input_state in &init_input_states {
-                        graph.state_defs[input_state].input_to.push(node_idx);
+                    for &input_value in &init_input_values {
+                        graph.value_defs[input_value].input_to.push(node_idx);
                     }
 
                     // Determine `output_effects`
@@ -349,15 +349,15 @@ impl DataflowGraph {
                         })
                         .collect::<SmallVec<[_; 2]>>();
 
-                    // Write out states
+                    // Write out connections
                     let DataflowGraphNodeTerminator {
                         operation: _,
                         input_effect: _, // (already init)
-                        input_states,
+                        input_values,
                         output_effects,
                     } = graph.node_defs[node_idx].unwrap_terminator_mut();
 
-                    *input_states = init_input_states;
+                    *input_values = init_input_values;
                     *output_effects = init_output_effects;
 
                     // Link up phi node inputs.
@@ -378,15 +378,15 @@ impl DataflowGraph {
                             .into_iter()
                             .zip(phi_nodes)
                         {
-                            let src_state = graph.lookup_value_state(ctx, src_value);
+                            let src_value_idx = graph.lookup_value_idx(ctx, src_value);
 
                             let DataflowGraphNodePhi {
-                                input_states: dst_input_states,
+                                input_values: dst_input_values,
                                 ..
                             } = graph.node_defs[dst_node].unwrap_phi_mut();
 
-                            dst_input_states.push(src_state);
-                            graph.state_defs[src_state].input_to.push(dst_node);
+                            dst_input_values.push(src_value_idx);
+                            graph.value_defs[src_value_idx].input_to.push(dst_node);
                         }
                     }
                 }
@@ -396,18 +396,18 @@ impl DataflowGraph {
         graph
     }
 
-    pub fn lookup_value_state(&self, ctx: &Context, value: Value) -> DataflowStateIdx {
+    pub fn lookup_value_idx(&self, ctx: &Context, value: Value) -> DataflowValueIdx {
         match value.defining_entity() {
-            DefiningEntity::Op(op) => self.node_defs[self.op_map[&op]].unwrap_output_state(),
+            DefiningEntity::Op(op) => self.node_defs[self.op_map[&op]].unwrap_output_value(),
             DefiningEntity::Block(bb) => {
                 let phi_node = self.bb_map[&bb][value.find_index(ctx)];
-                self.node_defs[phi_node].unwrap_output_state()
+                self.node_defs[phi_node].unwrap_output_value()
             }
         }
     }
 
-    pub fn is_input_state(&self, ctx: &Context, state: DataflowStateIdx) -> bool {
-        match &self.node_defs[self.state_defs[state].defined_by] {
+    pub fn is_input_value(&self, ctx: &Context, value: DataflowValueIdx) -> bool {
+        match &self.node_defs[self.value_defs[value].defined_by] {
             DataflowGraphNode::Phi(DataflowGraphNodePhi { basic_block, .. })
                 if basic_block.deref(ctx).get_prev().is_none() =>
             {
@@ -445,7 +445,7 @@ impl DataflowGraph {
     pub fn affected_nodes(&self, slot: DataflowSlotIdx) -> &[DataflowNodeIdx] {
         match slot {
             DataflowSlotIdx::Effect(idx) => slice::from_ref(&self.effect_defs[idx].input_to),
-            DataflowSlotIdx::State(idx) => &self.state_defs[idx].input_to,
+            DataflowSlotIdx::Value(idx) => &self.value_defs[idx].input_to,
         }
     }
 }
@@ -472,10 +472,10 @@ impl Analysis for DataflowGraph {
 pub struct DataflowScratch<E, S> {
     work_list: VecDeque<DataflowSlotIdx>,
     effects: IndexVec<DataflowEffectIdx, DataflowSlot<E>>,
-    states: IndexVec<DataflowStateIdx, DataflowSlot<S>>,
+    values: IndexVec<DataflowValueIdx, DataflowSlot<S>>,
     vec_of_ptrs_1: VecOfPtrScratch,
     vec_of_ptrs_2: VecOfPtrScratch,
-    borrow_states: DisjointBorrowsScratch,
+    borrows: DisjointBorrowsScratch,
 }
 
 impl<E, S> Default for DataflowScratch<E, S> {
@@ -483,10 +483,10 @@ impl<E, S> Default for DataflowScratch<E, S> {
         Self {
             work_list: VecDeque::default(),
             effects: IndexVec::default(),
-            states: IndexVec::default(),
+            values: IndexVec::default(),
             vec_of_ptrs_1: VecOfPtrScratch::default(),
             vec_of_ptrs_2: VecOfPtrScratch::default(),
-            borrow_states: DisjointBorrowsScratch::default(),
+            borrows: DisjointBorrowsScratch::default(),
         }
     }
 }
@@ -500,8 +500,8 @@ impl<E, S> DataflowScratch<E, S> {
         &self.effects[effect].lattice
     }
 
-    pub fn state(&self, effect: DataflowStateIdx) -> &S {
-        &self.states[effect].lattice
+    pub fn value(&self, effect: DataflowValueIdx) -> &S {
+        &self.values[effect].lattice
     }
 
     fn mark_dirty(&mut self, target: DataflowSlotIdx) {
@@ -511,8 +511,8 @@ impl<E, S> DataflowScratch<E, S> {
                     self.work_list.push_back(target);
                 }
             }
-            DataflowSlotIdx::State(idx) => {
-                if !mem::replace(&mut self.states[idx].in_work_list, true) {
+            DataflowSlotIdx::Value(idx) => {
+                if !mem::replace(&mut self.values[idx].in_work_list, true) {
                     self.work_list.push_back(target);
                 }
             }
@@ -526,8 +526,8 @@ impl<E, S> DataflowScratch<E, S> {
                     return;
                 }
             }
-            DataflowSlotIdx::State(idx) => {
-                if !mem::take(&mut self.states[idx].user_marked_dirty) {
+            DataflowSlotIdx::Value(idx) => {
+                if !mem::take(&mut self.values[idx].user_marked_dirty) {
                     return;
                 }
             }
@@ -568,7 +568,7 @@ impl<T> DataflowSlot<T> {
 
 pub trait DataflowAnalysis<'c>: Sized {
     type Effect;
-    type State;
+    type Value;
 
     fn ctx(&self) -> &'c Context;
 
@@ -576,12 +576,12 @@ pub trait DataflowAnalysis<'c>: Sized {
 
     fn new_effect(&mut self, is_input: bool) -> Self::Effect;
 
-    fn new_state(&mut self, is_input: bool) -> Self::State;
+    fn new_var(&mut self, is_input: bool) -> Self::Value;
 
     fn trans_phi(
         &mut self,
-        input_states: &[&Self::State],
-        output_state: &mut DataflowSlot<Self::State>,
+        input_values: &[&Self::Value],
+        output_value: &mut DataflowSlot<Self::Value>,
     );
 
     fn trans_stmt(
@@ -589,23 +589,23 @@ pub trait DataflowAnalysis<'c>: Sized {
         operation: Ptr<Operation>,
         input_effect: &Self::Effect,
         output_effect: &mut DataflowSlot<Self::Effect>,
-        input_states: &[&Self::State],
-        output_state: Option<&mut DataflowSlot<Self::State>>,
+        input_values: &[&Self::Value],
+        output_value: Option<&mut DataflowSlot<Self::Value>>,
     );
 
     fn trans_terminator(
         &mut self,
         operation: Ptr<Operation>,
         input_effect: &Self::Effect,
-        input_states: &[&Self::State],
+        input_values: &[&Self::Value],
         output_effects: &[&mut DataflowSlot<Self::Effect>],
     );
 
-    fn run(&mut self, scratch: &mut DataflowScratch<Self::Effect, Self::State>) {
+    fn run(&mut self, scratch: &mut DataflowScratch<Self::Effect, Self::Value>) {
         let ctx = self.ctx();
         let graph = self.graph();
 
-        // Setup initial states
+        // Setup scratch
         scratch.work_list.clear();
 
         scratch.effects.clear();
@@ -625,18 +625,18 @@ pub trait DataflowAnalysis<'c>: Sized {
                 }
             }));
 
-        scratch.states.clear();
+        scratch.values.clear();
         scratch
-            .states
-            .extend(graph.state_defs.indices().map(|state| {
-                let is_input = graph.is_input_state(ctx, state);
+            .values
+            .extend(graph.value_defs.indices().map(|value| {
+                let is_input = graph.is_input_value(ctx, value);
 
                 if is_input {
-                    scratch.work_list.push_back(state.into());
+                    scratch.work_list.push_back(value.into());
                 }
 
                 DataflowSlot {
-                    lattice: self.new_state(is_input),
+                    lattice: self.new_var(is_input),
                     user_marked_dirty: false,
                     in_work_list: is_input,
                 }
@@ -649,30 +649,29 @@ pub trait DataflowAnalysis<'c>: Sized {
                     DataflowGraphNode::Phi(DataflowGraphNodePhi {
                         basic_block: _,
                         basic_block_arg: _,
-                        input_states: input_states_indices,
-                        output_state: output_state_idx,
+                        input_values: input_value_indices,
+                        output_value: output_value_idx,
                     }) => {
-                        let mut state_borrows = scratch
-                            .borrow_states
-                            .builder(scratch.states.as_raw_slice_mut());
+                        let mut value_borrows =
+                            scratch.borrows.builder(scratch.values.as_raw_slice_mut());
 
-                        let input_states = scratch.vec_of_ptrs_1.build(
-                            input_states_indices
+                        let input_values = scratch.vec_of_ptrs_1.build(
+                            input_value_indices
                                 .iter()
-                                .map(|idx| &state_borrows.get(idx.index()).lattice),
+                                .map(|idx| &value_borrows.get(idx.index()).lattice),
                         );
-                        let output_state = state_borrows.get(output_state_idx.index());
+                        let output_value = value_borrows.get(output_value_idx.index());
 
-                        self.trans_phi(input_states, output_state);
+                        self.trans_phi(input_values, output_value);
 
-                        scratch.process_user_mark((*output_state_idx).into());
+                        scratch.process_user_mark((*output_value_idx).into());
                     }
                     DataflowGraphNode::Stmt(DataflowGraphNodeStmt {
                         operation,
                         input_effect: input_effect_idx,
                         output_effect: output_effect_idx,
-                        input_states: input_state_indices,
-                        output_state: output_state_index,
+                        input_values: input_value_indices,
+                        output_value: output_value_index,
                     }) => {
                         let [
                             &mut DataflowSlot {
@@ -686,48 +685,46 @@ pub trait DataflowAnalysis<'c>: Sized {
                             .get_disjoint_mut([input_effect_idx.index(), output_effect_idx.index()])
                             .unwrap();
 
-                        let mut state_borrows = scratch
-                            .borrow_states
-                            .builder(scratch.states.as_raw_slice_mut());
+                        let mut value_borrows =
+                            scratch.borrows.builder(scratch.values.as_raw_slice_mut());
 
-                        let input_states = scratch.vec_of_ptrs_1.build(
-                            input_state_indices
+                        let input_values = scratch.vec_of_ptrs_1.build(
+                            input_value_indices
                                 .iter()
-                                .map(|idx| &state_borrows.get(idx.index()).lattice),
+                                .map(|idx| &value_borrows.get(idx.index()).lattice),
                         );
 
-                        let output_state =
-                            output_state_index.map(|idx| state_borrows.get(idx.index()));
+                        let output_value =
+                            output_value_index.map(|idx| value_borrows.get(idx.index()));
 
                         self.trans_stmt(
                             *operation,
                             input_effect,
                             output_effect,
-                            input_states,
-                            output_state,
+                            input_values,
+                            output_value,
                         );
 
                         scratch.process_user_mark((*output_effect_idx).into());
 
-                        if let Some(output_state_index) = output_state_index {
-                            scratch.process_user_mark((*output_state_index).into());
+                        if let Some(output_value_index) = output_value_index {
+                            scratch.process_user_mark((*output_value_index).into());
                         }
                     }
                     DataflowGraphNode::Terminator(DataflowGraphNodeTerminator {
                         operation,
                         input_effect: input_effect_index,
-                        input_states: input_state_indices,
+                        input_values: input_value_indices,
                         output_effects: output_effect_indices,
                     }) => {
-                        let mut effect_borrows = scratch
-                            .borrow_states
-                            .builder(scratch.effects.as_raw_slice_mut());
+                        let mut effect_borrows =
+                            scratch.borrows.builder(scratch.effects.as_raw_slice_mut());
 
                         let input_effect = &effect_borrows.get(input_effect_index.index()).lattice;
-                        let input_states = scratch.vec_of_ptrs_1.build(
-                            input_state_indices
+                        let input_values = scratch.vec_of_ptrs_1.build(
+                            input_value_indices
                                 .iter()
-                                .map(|&idx| &scratch.states[idx].lattice),
+                                .map(|&idx| &scratch.values[idx].lattice),
                         );
 
                         let output_effects = scratch.vec_of_ptrs_2.build(
@@ -739,7 +736,7 @@ pub trait DataflowAnalysis<'c>: Sized {
                         self.trans_terminator(
                             *operation,
                             input_effect,
-                            input_states,
+                            input_values,
                             output_effects,
                         );
 
@@ -815,18 +812,18 @@ unsafe impl<'a, T> SizedPointer for &'a mut T {
 
 #[derive(Default)]
 struct DisjointBorrowsScratch {
-    states: Vec<bool>,
+    borrowed_cells: Vec<bool>,
     undo_set: Vec<usize>,
 }
 
 impl DisjointBorrowsScratch {
     fn builder<'s, 'a, T>(&'s mut self, target: &'a mut [T]) -> DisjointBorrowsBuilder<'s, 'a, T> {
         for idx in self.undo_set.drain(..) {
-            self.states[idx] = false;
+            self.borrowed_cells[idx] = false;
         }
 
-        if self.states.len() < target.len() {
-            self.states.resize(target.len(), false);
+        if self.borrowed_cells.len() < target.len() {
+            self.borrowed_cells.resize(target.len(), false);
         }
 
         DisjointBorrowsBuilder {
@@ -847,7 +844,7 @@ impl<'s, 'a, T> DisjointBorrowsBuilder<'s, 'a, T> {
     fn get(&mut self, index: usize) -> &'a mut T {
         assert!(index < self.target.len());
         assert!(
-            !mem::replace(&mut self.scratch.states[index], true),
+            !mem::replace(&mut self.scratch.borrowed_cells[index], true),
             "cannot borrow the same index more than once"
         );
 
