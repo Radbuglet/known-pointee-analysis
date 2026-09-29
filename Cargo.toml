@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.104"
+derive-where = "1.7.0"
 index_vec = "0.1.4"
 paste = "1.0.15"
 pliron = "0.18.0"

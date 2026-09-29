@@ -161,12 +161,24 @@ name = "cst_analysis"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "derive-where",
  "index_vec",
  "paste",
  "pliron",
  "pliron-llvm",
  "rustc-hash",
  "smallvec",
+]
+
+[[package]]
+name = "derive-where"
+version = "1.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e2b94854e8576378ccda7c8de8a66ed8b4e8acbd2c50ec3418ea6c8aaf4b567"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

@@ -1,6 +1,9 @@
 // Pliron doesn't really have a dataflow analysis framework so I wrote one myself. It's terrible.
 // I'm so so very sorry.
 
+use std::{collections::VecDeque, mem, slice};
+
+use derive_where::derive_where;
 use index_vec::{IndexVec, define_index_type};
 use pliron::{
     basic_block::BasicBlock,
@@ -24,15 +27,33 @@ define_index_type! {
 }
 
 define_index_type! {
+    pub struct DataflowBasicBlockArg = u32;
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum DataflowSlotIdx {
+    Effect(DataflowEffectIdx),
+    State(DataflowStateIdx),
+}
+
+impl From<DataflowEffectIdx> for DataflowSlotIdx {
+    fn from(value: DataflowEffectIdx) -> Self {
+        Self::Effect(value)
+    }
+}
+
+impl From<DataflowStateIdx> for DataflowSlotIdx {
+    fn from(value: DataflowStateIdx) -> Self {
+        Self::State(value)
+    }
+}
+
+define_index_type! {
     pub struct DataflowEffectIdx = u32;
 }
 
 define_index_type! {
     pub struct DataflowStateIdx = u32;
-}
-
-define_index_type! {
-    pub struct DataflowBasicBlockArg = u32;
 }
 
 #[derive(Debug, Clone)]
@@ -267,16 +288,6 @@ impl DataflowGraph {
         }
 
         // Connect up everything.
-        fn lookup_state(graph: &DataflowGraph, ctx: &Context, value: Value) -> DataflowStateIdx {
-            match value.defining_entity() {
-                DefiningEntity::Op(op) => graph.node_defs[graph.op_map[&op]].unwrap_output_state(),
-                DefiningEntity::Block(bb) => {
-                    let phi_node = graph.bb_map[&bb][value.find_index(ctx)];
-                    graph.node_defs[phi_node].unwrap_output_state()
-                }
-            }
-        }
-
         for node_idx in graph.node_defs.indices() {
             match &graph.node_defs[node_idx] {
                 DataflowGraphNode::Phi(DataflowGraphNodePhi { .. }) => {
@@ -293,7 +304,7 @@ impl DataflowGraph {
                     // Determine `input_states`
                     let init_input_states = operation_r
                         .operands()
-                        .map(|value| lookup_state(&graph, ctx, value))
+                        .map(|value| graph.lookup_value_state(ctx, value))
                         .collect::<SmallVec<[DataflowStateIdx; 2]>>();
 
                     for &input_state in &init_input_states {
@@ -322,7 +333,7 @@ impl DataflowGraph {
                     // TODO: possibly truncate states that are only used in forwarding
                     let init_input_states = operation_r
                         .operands()
-                        .map(|value| lookup_state(&graph, ctx, value))
+                        .map(|value| graph.lookup_value_state(ctx, value))
                         .collect::<SmallVec<[DataflowStateIdx; 2]>>();
 
                     for &input_state in &init_input_states {
@@ -368,7 +379,7 @@ impl DataflowGraph {
                             .into_iter()
                             .zip(phi_nodes)
                         {
-                            let src_state = lookup_state(&graph, ctx, src_value);
+                            let src_state = graph.lookup_value_state(ctx, src_value);
 
                             let DataflowGraphNodePhi {
                                 input_states: dst_input_states,
@@ -384,6 +395,59 @@ impl DataflowGraph {
         }
 
         graph
+    }
+
+    pub fn lookup_value_state(&self, ctx: &Context, value: Value) -> DataflowStateIdx {
+        match value.defining_entity() {
+            DefiningEntity::Op(op) => self.node_defs[self.op_map[&op]].unwrap_output_state(),
+            DefiningEntity::Block(bb) => {
+                let phi_node = self.bb_map[&bb][value.find_index(ctx)];
+                self.node_defs[phi_node].unwrap_output_state()
+            }
+        }
+    }
+
+    pub fn is_input_state(&self, ctx: &Context, state: DataflowStateIdx) -> bool {
+        match &self.node_defs[self.state_defs[state].defined_by] {
+            DataflowGraphNode::Phi(DataflowGraphNodePhi { basic_block, .. })
+                if basic_block.deref(ctx).get_prev().is_none() =>
+            {
+                true
+            }
+            _ => false,
+        }
+    }
+
+    pub fn is_input_effect(&self, ctx: &Context, effect: DataflowEffectIdx) -> bool {
+        let op = self.node_defs[self.effect_defs[effect].input_to]
+            .as_operation()
+            .unwrap()
+            .deref(ctx);
+
+        if op.get_prev().is_some() {
+            // (not the first operation)
+            return false;
+        }
+
+        if op
+            .get_parent_block()
+            .unwrap()
+            .deref(ctx)
+            .get_prev()
+            .is_some()
+        {
+            // (not the entry block)
+            return false;
+        }
+
+        true
+    }
+
+    pub fn affected_nodes(&self, slot: DataflowSlotIdx) -> &[DataflowNodeIdx] {
+        match slot {
+            DataflowSlotIdx::Effect(idx) => slice::from_ref(&self.effect_defs[idx].input_to),
+            DataflowSlotIdx::State(idx) => &self.state_defs[idx].input_to,
+        }
     }
 }
 
@@ -406,6 +470,35 @@ impl Analysis for DataflowGraph {
 
 // === DataflowAnalysis === //
 
+#[derive_where(Default)]
+pub struct DataflowScratch<E, S> {
+    work_list: VecDeque<DataflowSlotIdx>,
+    effects: IndexVec<DataflowEffectIdx, DataflowScratchEntry<E>>,
+    states: IndexVec<DataflowStateIdx, DataflowScratchEntry<S>>,
+}
+
+struct DataflowScratchEntry<T> {
+    state: T,
+    dirty: bool,
+}
+
+impl<E, S> DataflowScratch<E, S> {
+    fn mark_dirty(&mut self, target: DataflowSlotIdx) {
+        match target {
+            DataflowSlotIdx::Effect(idx) => {
+                if !mem::replace(&mut self.effects[idx].dirty, true) {
+                    self.work_list.push_back(target);
+                }
+            }
+            DataflowSlotIdx::State(idx) => {
+                if !mem::replace(&mut self.states[idx].dirty, true) {
+                    self.work_list.push_back(target);
+                }
+            }
+        }
+    }
+}
+
 pub trait DataflowAnalysis<'c>: Sized {
     type Effect: DataflowLattice<Self>;
     type State: DataflowLattice<Self>;
@@ -414,18 +507,93 @@ pub trait DataflowAnalysis<'c>: Sized {
 
     fn graph(&self) -> &'c DataflowGraph;
 
-    fn run(&mut self) {
-        struct Lattice<S> {
-            state: S,
-            dirty: bool,
-        }
-
+    fn run(&mut self, scratch: &mut DataflowScratch<Self::Effect, Self::State>) {
         let ctx = self.ctx();
         let graph = self.graph();
 
-        let mut states = IndexVec::<DataflowStateIdx, Lattice<Self::State>>::from_iter([]);
-        let mut effects = IndexVec::<DataflowStateIdx, Lattice<Self::Effect>>::default();
+        // Setup initial states
+        scratch.work_list.clear();
+
+        scratch.effects.clear();
+        scratch
+            .effects
+            .extend(graph.effect_defs.indices().map(|effect| {
+                let is_input = graph.is_input_effect(ctx, effect);
+
+                if is_input {
+                    scratch.work_list.push_back(effect.into());
+
+                    DataflowScratchEntry {
+                        state: Self::Effect::top(self),
+                        dirty: false,
+                    }
+                } else {
+                    DataflowScratchEntry {
+                        state: Self::Effect::bot(self),
+                        dirty: false,
+                    }
+                }
+            }));
+
+        scratch.states.clear();
+        scratch
+            .states
+            .extend(graph.state_defs.indices().map(|state| {
+                let is_input = graph.is_input_state(ctx, state);
+
+                if is_input {
+                    scratch.work_list.push_back(state.into());
+
+                    DataflowScratchEntry {
+                        state: Self::State::top(self),
+                        dirty: false,
+                    }
+                } else {
+                    DataflowScratchEntry {
+                        state: Self::State::bot(self),
+                        dirty: false,
+                    }
+                }
+            }));
+
+        // Run dataflow
+        while let Some(affected_slot) = scratch.work_list.pop_front() {
+            for &affected_node in graph.affected_nodes(affected_slot) {
+                match &graph.node_defs[affected_node] {
+                    DataflowGraphNode::Phi(DataflowGraphNodePhi {
+                        basic_block: _,
+                        basic_block_arg: _,
+                        input_states,
+                        output_state,
+                    }) => {
+                        Self::State::reset_bot(self, &mut scratch.states[*output_state].state);
+
+                        for &input_state in input_states {
+                            let [output_state, input_state] = scratch
+                                .states
+                                .as_raw_slice_mut()
+                                .get_disjoint_mut([output_state.index(), input_state.index()])
+                                .unwrap();
+
+                            Self::State::join(self, &mut output_state.state, &input_state.state);
+                        }
+
+                        scratch.mark_dirty((*output_state).into());
+                    }
+                    DataflowGraphNode::Stmt(_) => todo!(),
+                    DataflowGraphNode::Terminator(_) => todo!(),
+                }
+            }
+        }
     }
 }
 
-pub trait DataflowLattice<D> {}
+pub trait DataflowLattice<D> {
+    fn bot(df: &mut D) -> Self;
+
+    fn top(df: &mut D) -> Self;
+
+    fn reset_bot(df: &mut D, target: &mut Self);
+
+    fn join(df: &mut D, target: &mut Self, other: &Self) -> bool;
+}
