@@ -5,7 +5,7 @@ llvm.func @_Z4meowPbS_: llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variad
     -> v1: Unknown(None)
 
         v4 = llvm.constant <builtin.integer <1: i8>> : builtin.integer i8
-        -> result: Known(0)
+        -> result: Known(1)
         -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {} }
 
         v10 = llvm.constant <builtin.integer <0: i8>> : builtin.integer i8
@@ -27,7 +27,7 @@ llvm.func @_Z4meowPbS_: llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variad
     -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {} }
 
         llvm.store *v0 <- v4 [align : 1] !0
-        -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(0): 0} }
+        -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(0): 1} }
 
         llvm.br ^block5v1()
 
@@ -43,15 +43,15 @@ llvm.func @_Z4meowPbS_: llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variad
 
 
     ^block5v1()
-    -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(0): 0} }
+    -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(0): 1} }
 
         v6 = llvm.load v1 [align : 1] : builtin.integer i8 !0
-        -> result: Unknown(Some(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(0): 0} }))
-        -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(0): 0} }
+        -> result: Unknown(Some(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(0): 1} }))
+        -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(0): 1} }
 
         v7 = llvm.trunc v6 to builtin.integer i1
-        -> result: Unknown(Some(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(0): 0} }))
-        -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(0): 0} }
+        -> result: Unknown(Some(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(0): 1} }))
+        -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(0): 1} }
 
         llvm.cond_br if v7 ^block7v1() else ^block6v1()
 
@@ -60,7 +60,7 @@ llvm.func @_Z4meowPbS_: llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variad
     -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {} }
 
         llvm.store *v1 <- v4 [align : 1] !0
-        -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(1): 0} }
+        -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(1): 1} }
 
         llvm.br ^block8v1()
 
@@ -76,7 +76,7 @@ llvm.func @_Z4meowPbS_: llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variad
 
 
     ^block8v1()
-    -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(1): 0} }
+    -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(1): 1} }
 
         v9 = llvm.call @_Z9unrelatedPb (v0) : llvm.func <llvm.ptr (0)(llvm.ptr (0)) variadic = false>
         -> result: Unknown(None)
@@ -103,7 +103,7 @@ llvm.func @_Z4meowPbS_: llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variad
     -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {} }
 
         llvm.store *v9 <- v4 [align : 1] !0
-        -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(2): 0} }
+        -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(2): 1} }
 
         llvm.br ^block11v1()
 
@@ -119,15 +119,15 @@ llvm.func @_Z4meowPbS_: llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variad
 
 
     ^block11v1()
-    -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(2): 0} }
+    -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(2): 1} }
 
         v14 = llvm.load v1 [align : 1] : builtin.integer i8 !0
-        -> result: Unknown(Some(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(2): 0} }))
-        -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(2): 0} }
+        -> result: Unknown(Some(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(2): 1} }))
+        -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(2): 1} }
 
         v15 = llvm.trunc v14 to builtin.integer i1
-        -> result: Unknown(Some(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(2): 0} }))
-        -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(2): 0} }
+        -> result: Unknown(Some(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(2): 1} }))
+        -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(2): 1} }
 
         llvm.cond_br if v15 ^block13v1() else ^block12v1()
 
@@ -136,7 +136,7 @@ llvm.func @_Z4meowPbS_: llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variad
     -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {} }
 
         llvm.store *v1 <- v4 [align : 1] !0
-        -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(1): 0} }
+        -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(1): 1} }
 
         llvm.br ^block14v1()
 
@@ -152,7 +152,7 @@ llvm.func @_Z4meowPbS_: llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variad
 
 
     ^block14v1()
-    -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(1): 0} }
+    -> effects: PointeeEffectLattice { no_alias: {}, known_pointees: {PtrIdx(1): 1} }
 
         v17 = llvm.call @_Z9unrelatedPb (v9) : llvm.func <llvm.ptr (0)(llvm.ptr (0)) variadic = false>
         -> result: Unknown(None)

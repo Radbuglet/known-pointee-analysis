@@ -2,7 +2,13 @@ use core::fmt;
 use std::rc::Rc;
 
 use pliron::{
-    builtin::op_interfaces::AtMostOneRegionInterface as _,
+    attribute::{Attribute, attr_cast},
+    builtin::{
+        attr_interfaces::TypedAttrInterface,
+        attributes::IntegerAttr,
+        op_interfaces::{AtMostOneRegionInterface as _, OneResultInterface},
+        types::IntegerType,
+    },
     context::{Context, Ptr},
     graph::walkers::{self, WalkConfig},
     operation::Operation,
@@ -180,19 +186,27 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
         let ctx = self.ctx();
 
         // Constant
-        if let Some(operation) = Operation::get_op::<ConstantOp>(operation, ctx) {
+        if let Some(operation) = Operation::get_op::<ConstantOp>(operation, ctx)
+            && let Some(constant) =
+                (&*operation.get_value(ctx) as &dyn Attribute).downcast_ref::<IntegerAttr>()
+        {
             output_effect.set_value_ref(input_effect);
-            output_state.unwrap().set_value(OptimisticScalar::Known(0)); // TODO: operation.get_value(ctx)
+            output_state
+                .unwrap()
+                .set_value(OptimisticScalar::Known(constant.value().to_u64()));
 
             return;
         }
 
         // Truncate
-        if let Some(_operation) = Operation::get_op::<TruncOp>(operation, ctx) {
+        if let Some(operation) = Operation::get_op::<TruncOp>(operation, ctx)
+            && let result_ty = operation.result_type(ctx)
+            && let Some(int_ty) = result_ty.deref(ctx).downcast_ref::<IntegerType>()
+        {
             output_effect.set_value_ref(input_effect);
 
             let mut new_output_state = input_states[0].clone();
-            new_output_state.map(|value| value & 1); // TODO
+            new_output_state.map(|value| value & ((1u64 << int_ty.width()) - 1));
             output_state.unwrap().set_value(new_output_state);
 
             return;
