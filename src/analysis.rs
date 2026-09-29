@@ -126,7 +126,7 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
     }
 
     fn init_value(&mut self, _is_input: bool) -> Self::Value {
-        OptimisticScalar::Unknown(None)
+        OptimisticScalar::default()
     }
 
     fn trans_effect_phi(
@@ -209,7 +209,7 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
 
         // Fallback
         if let Some(output_state) = output_state {
-            output_state.set_value(OptimisticScalar::Unknown(None));
+            output_state.set_value(OptimisticScalar::default());
         }
 
         let mut new_output_effect = input_effect.clone();
@@ -288,26 +288,6 @@ impl PointeeEffectLattice {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
-pub struct KnownPointeeMap {
-    pub raw: Rc<FxHashMap<PtrIdx, u64>>,
-}
-
-impl KnownPointeeMap {
-    pub fn clear(&mut self) {
-        if let Some(map) = Rc::get_mut(&mut self.raw) {
-            map.clear();
-        } else {
-            self.raw = Rc::new(FxHashMap::default());
-        }
-    }
-
-    pub fn join(&mut self, other: &Self) {
-        Rc::make_mut(&mut self.raw)
-            .retain(|key, value| other.raw.get(key).is_none_or(|other| value == other));
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub struct NoAliasSet {
     pairs: FxHashSet<[PtrIdx; 2]>,
 }
@@ -330,6 +310,26 @@ impl NoAliasSet {
     }
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
+pub struct KnownPointeeMap {
+    pub raw: Rc<FxHashMap<PtrIdx, u64>>,
+}
+
+impl KnownPointeeMap {
+    pub fn clear(&mut self) {
+        if let Some(map) = Rc::get_mut(&mut self.raw) {
+            map.clear();
+        } else {
+            self.raw = Rc::new(FxHashMap::default());
+        }
+    }
+
+    pub fn join(&mut self, other: &Self) {
+        Rc::make_mut(&mut self.raw)
+            .retain(|key, value| other.raw.get(key).is_none_or(|other| value == other));
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum OptimisticScalar {
     Known(u64),
@@ -342,12 +342,42 @@ pub struct LoadHypothesis {
     pub branches: KnownPointeeMap,
 }
 
+impl Default for OptimisticScalar {
+    fn default() -> Self {
+        Self::Unknown(None)
+    }
+}
+
 impl OptimisticScalar {
     pub fn map(&mut self, mut f: impl FnMut(u64) -> u64) {
-        todo!()
+        match self {
+            OptimisticScalar::Known(value) => {
+                *value = f(*value);
+            }
+            OptimisticScalar::Unknown(Some(load_hypothesis)) => {
+                for value in Rc::make_mut(&mut load_hypothesis.branches.raw).values_mut() {
+                    *value = f(*value);
+                }
+            }
+            OptimisticScalar::Unknown(None) => {
+                // (nothing to update)
+            }
+        }
     }
 
     pub fn join(&mut self, other: &OptimisticScalar) {
-        todo!()
+        match (&mut *self, other) {
+            (OptimisticScalar::Known(lhs), OptimisticScalar::Known(rhs)) if lhs == rhs => {
+                // (no-op)
+            }
+            (OptimisticScalar::Unknown(Some(lhs)), OptimisticScalar::Unknown(Some(rhs)))
+                if lhs.read_src == rhs.read_src =>
+            {
+                lhs.branches.join(&rhs.branches);
+            }
+            _ => {
+                *self = OptimisticScalar::default();
+            }
+        }
     }
 }
