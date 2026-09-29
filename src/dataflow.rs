@@ -868,6 +868,21 @@ mod pretty {
                     )
                 )?;
 
+                for (idx, argument) in bb_r.arguments().enumerate() {
+                    writeln!(
+                        f,
+                        "    -> {}: {:?}",
+                        argument.disp(ctx),
+                        scratch.value(
+                            graph.node_defs[graph.bb_map[&bb].arg_phi_nodes[idx]]
+                                .unwrap_value_phi_ref()
+                                .output_value
+                        )
+                    )?;
+                }
+
+                writeln!(f)?;
+
                 for stmt in bb_r.iter(ctx) {
                     writeln!(f, "        {}", stmt.disp(ctx))?;
 
