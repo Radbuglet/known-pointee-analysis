@@ -157,19 +157,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cst_analysis"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "index_vec",
- "paste",
- "pliron",
- "pliron-llvm",
- "rustc-hash",
- "smallvec",
-]
-
-[[package]]
 name = "downcast-rs"
 version = "2.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -243,6 +230,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4f0c30c76f2f4ccee3fe55a2435f691ca00c0e4bd87abe4f4a851b1d4dac39b"
 dependencies = [
  "rustversion",
+]
+
+[[package]]
+name = "known_pointee_analysis"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "index_vec",
+ "paste",
+ "pliron",
+ "pliron-llvm",
+ "rustc-hash",
+ "smallvec",
 ]
 
 [[package]]

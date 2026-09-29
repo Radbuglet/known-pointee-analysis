@@ -1,5 +1,5 @@
 [package]
-name = "cst_analysis"
+name = "known_pointee_analysis"
 version = "0.1.0"
 edition = "2024"
 
