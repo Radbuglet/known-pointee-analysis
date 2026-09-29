@@ -1,7 +1,7 @@
 // Pliron doesn't really have a dataflow analysis framework so I wrote one myself. It's terrible.
 // I'm so so very sorry.
 
-use std::{collections::VecDeque, mem, slice};
+use std::{collections::VecDeque, marker::PhantomData, mem, slice};
 
 use derive_where::derive_where;
 use index_vec::{IndexVec, define_index_type};
@@ -473,13 +473,10 @@ impl Analysis for DataflowGraph {
 #[derive_where(Default)]
 pub struct DataflowScratch<E, S> {
     work_list: VecDeque<DataflowSlotIdx>,
-    effects: IndexVec<DataflowEffectIdx, DataflowScratchEntry<E>>,
-    states: IndexVec<DataflowStateIdx, DataflowScratchEntry<S>>,
-}
-
-struct DataflowScratchEntry<T> {
-    lattice: T,
-    dirty: bool,
+    effects: IndexVec<DataflowEffectIdx, DataflowSlot<E>>,
+    states: IndexVec<DataflowStateIdx, DataflowSlot<S>>,
+    vec_of_ptrs: VecOfPtrScratch,
+    borrow_states: DisjointBorrowsScratch,
 }
 
 impl<E, S> DataflowScratch<E, S> {
@@ -498,12 +495,12 @@ impl<E, S> DataflowScratch<E, S> {
     fn mark_dirty(&mut self, target: DataflowSlotIdx) {
         match target {
             DataflowSlotIdx::Effect(idx) => {
-                if !mem::replace(&mut self.effects[idx].dirty, true) {
+                if !mem::replace(&mut self.effects[idx].in_work_list, true) {
                     self.work_list.push_back(target);
                 }
             }
             DataflowSlotIdx::State(idx) => {
-                if !mem::replace(&mut self.states[idx].dirty, true) {
+                if !mem::replace(&mut self.states[idx].in_work_list, true) {
                     self.work_list.push_back(target);
                 }
             }
@@ -511,9 +508,33 @@ impl<E, S> DataflowScratch<E, S> {
     }
 }
 
-pub struct MutationTracker<'a, L> {
-    pub dirty: &'a mut bool,
-    pub value: &'a mut L,
+pub struct DataflowSlot<T> {
+    lattice: T,
+    user_marked_dirty: bool,
+    in_work_list: bool,
+}
+
+impl<T> DataflowSlot<T> {
+    pub fn value(&self) -> &T {
+        &self.lattice
+    }
+
+    pub fn value_mut_marked(&mut self) -> &mut T {
+        self.user_marked_dirty = true;
+        &mut self.lattice
+    }
+
+    pub fn value_mut_unmarked(&mut self) -> &mut T {
+        &mut self.lattice
+    }
+
+    pub fn mark_dirty(&mut self) {
+        self.user_marked_dirty = true;
+    }
+
+    pub fn maybe_mark_dirty(&mut self, cond: bool) {
+        self.user_marked_dirty |= cond;
+    }
 }
 
 pub trait DataflowAnalysis<'c>: Sized {
@@ -531,16 +552,16 @@ pub trait DataflowAnalysis<'c>: Sized {
     fn trans_phi(
         &mut self,
         input_states: &[&Self::State],
-        output_state: MutationTracker<'_, Self::State>,
+        output_state: &mut DataflowSlot<Self::State>,
     );
 
     fn trans_stmt(
         &mut self,
         operation: Ptr<Operation>,
         input_effect: &Self::Effect,
-        output_effect: &mut Self::Effect,
+        output_effect: &mut DataflowSlot<Self::Effect>,
         input_states: &[&Self::State],
-        output_state: Option<MutationTracker<'_, Self::State>>,
+        output_state: Option<&mut DataflowSlot<Self::State>>,
     );
 
     fn trans_terminator(
@@ -548,7 +569,7 @@ pub trait DataflowAnalysis<'c>: Sized {
         operation: Ptr<Operation>,
         input_effect: &Self::Effect,
         input_states: &[&Self::State],
-        output_effects: &[MutationTracker<'_, Self::Effect>],
+        output_effects: &[&mut DataflowSlot<Self::Effect>],
     );
 
     fn run(&mut self, scratch: &mut DataflowScratch<Self::Effect, Self::State>) {
@@ -556,10 +577,6 @@ pub trait DataflowAnalysis<'c>: Sized {
         let graph = self.graph();
 
         // Setup initial states
-        let mut state_ref_buffer = Vec::new();
-        let mut state_mut_buffer = Vec::new();
-        let mut effect_mut_buffer = Vec::new();
-
         scratch.work_list.clear();
 
         scratch.effects.clear();
@@ -572,9 +589,10 @@ pub trait DataflowAnalysis<'c>: Sized {
                     scratch.work_list.push_back(effect.into());
                 }
 
-                DataflowScratchEntry {
+                DataflowSlot {
                     lattice: self.new_effect(is_input),
-                    dirty: is_input,
+                    user_marked_dirty: false,
+                    in_work_list: is_input,
                 }
             }));
 
@@ -588,9 +606,10 @@ pub trait DataflowAnalysis<'c>: Sized {
                     scratch.work_list.push_back(state.into());
                 }
 
-                DataflowScratchEntry {
+                DataflowSlot {
                     lattice: self.new_state(is_input),
-                    dirty: is_input,
+                    user_marked_dirty: false,
+                    in_work_list: is_input,
                 }
             }));
 
@@ -622,5 +641,104 @@ pub trait DataflowAnalysis<'c>: Sized {
                 }
             }
         }
+    }
+}
+
+// === Helpers === //
+
+#[derive(Default)]
+struct VecOfPtrScratch {
+    buffer: Vec<*mut ()>,
+}
+
+unsafe impl Send for VecOfPtrScratch {}
+unsafe impl Sync for VecOfPtrScratch {}
+
+impl VecOfPtrScratch {
+    pub fn builder<'i, T: SizedPointer>(&'i mut self) -> VecOfPtrScratchBuilder<'i, T> {
+        todo!()
+    }
+}
+
+struct VecOfPtrScratchBuilder<'a, T: SizedPointer> {
+    _ty: PhantomData<Vec<T>>,
+    buffer: &'a mut Vec<*mut ()>,
+}
+
+impl<'a, T: SizedPointer> VecOfPtrScratchBuilder<'a, T> {
+    fn push(&mut self, elem: T) {
+        self.buffer.push(elem.as_ptr());
+    }
+
+    fn finish(self) -> &'a mut [T] {
+        let buffer = self.buffer.as_mut_slice() as *mut [*mut ()];
+
+        unsafe { slice::from_raw_parts_mut(buffer.cast::<()>().cast::<T>(), buffer.len()) }
+    }
+}
+
+impl<'a, T: SizedPointer> Extend<T> for VecOfPtrScratchBuilder<'a, T> {
+    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
+        self.buffer.extend(iter.into_iter().map(|v| v.as_ptr()));
+    }
+}
+
+unsafe trait SizedPointer {
+    fn as_ptr(self) -> *mut ();
+}
+
+unsafe impl<'a, T> SizedPointer for &'a T {
+    fn as_ptr(self) -> *mut () {
+        (self as *const T).cast::<()>().cast_mut()
+    }
+}
+
+unsafe impl<'a, T> SizedPointer for &'a mut T {
+    fn as_ptr(self) -> *mut () {
+        (self as *mut T).cast()
+    }
+}
+
+#[derive(Default)]
+struct DisjointBorrowsScratch {
+    states: Vec<bool>,
+    undo_set: Vec<usize>,
+}
+
+impl DisjointBorrowsScratch {
+    fn builder<'s, 'a, T>(&'s mut self, target: &'a mut [T]) -> DisjointBorrowsBuilder<'s, 'a, T> {
+        for idx in self.undo_set.drain(..) {
+            self.states[idx] = false;
+        }
+
+        if self.states.len() < target.len() {
+            self.states.resize(target.len(), false);
+        }
+
+        DisjointBorrowsBuilder {
+            _ty: PhantomData,
+            scratch: self,
+            target,
+        }
+    }
+}
+
+struct DisjointBorrowsBuilder<'s, 'a, T> {
+    _ty: PhantomData<&'a mut [T]>,
+    scratch: &'s mut DisjointBorrowsScratch,
+    target: *mut [T],
+}
+
+impl<'s, 'a, T> DisjointBorrowsBuilder<'s, 'a, T> {
+    fn acquire(&mut self, index: usize) -> &'a mut T {
+        assert!(index < self.target.len());
+        assert!(
+            !mem::replace(&mut self.scratch.states[index], true),
+            "cannot borrow the same index more than once"
+        );
+
+        self.scratch.undo_set.push(index);
+
+        unsafe { &mut *self.target.cast::<T>().add(index) }
     }
 }
