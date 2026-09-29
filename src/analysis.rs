@@ -47,6 +47,7 @@ struct MyAnalysis<'a> {
     graph: &'a DataflowGraph,
 }
 
+#[derive(Default)]
 struct Effects {
     non_aliasing_pairs: FxHashSet<[Value; 2]>,
 }
@@ -70,15 +71,27 @@ impl<'a> DataflowAnalysis<'a> for MyAnalysis<'a> {
         self.graph
     }
 
-    fn new_effect(&mut self, is_input: bool) -> Self::Effect {
+    fn init_effect(&mut self, _is_input: bool) -> Self::Effect {
+        Effects::default()
+    }
+
+    fn init_value(&mut self, is_input: bool) -> Self::Value {
+        if is_input {
+            KnownPointee::Top
+        } else {
+            KnownPointee::Bottom
+        }
+    }
+
+    fn trans_effect_phi(
+        &mut self,
+        input_values: &[&Self::Effect],
+        output_value: &mut DataflowSlot<Self::Effect>,
+    ) {
         todo!()
     }
 
-    fn new_var(&mut self, is_input: bool) -> Self::Value {
-        todo!()
-    }
-
-    fn trans_phi(
+    fn trans_value_phi(
         &mut self,
         input_states: &[&Self::Value],
         output_state: &mut DataflowSlot<Self::Value>,

@@ -61,19 +61,32 @@ pub struct DataflowGraph {
     pub effect_defs: IndexVec<DataflowEffectIdx, DataflowGraphEffect>,
     pub value_defs: IndexVec<DataflowValueIdx, DataflowGraphValue>,
     pub op_map: FxHashMap<Ptr<Operation>, DataflowNodeIdx>,
-    pub bb_map: FxHashMap<Ptr<BasicBlock>, SmallVec<[DataflowNodeIdx; 2]>>,
+    pub bb_map: FxHashMap<Ptr<BasicBlock>, DataflowBb>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DataflowBb {
+    pub effect_phi_node: DataflowNodeIdx,
+    pub arg_phi_nodes: SmallVec<[DataflowNodeIdx; 2]>,
 }
 
 #[derive(Debug, Clone)]
 pub enum DataflowGraphNode {
-    Phi(DataflowGraphNodePhi),
+    EffectPhi(DataflowGraphNodeEffectPhi),
+    ValuePhi(DataflowGraphNodeValuePhi),
     Stmt(DataflowGraphNodeStmt),
     Terminator(DataflowGraphNodeTerminator),
 }
 
-impl From<DataflowGraphNodePhi> for DataflowGraphNode {
-    fn from(value: DataflowGraphNodePhi) -> Self {
-        Self::Phi(value)
+impl From<DataflowGraphNodeEffectPhi> for DataflowGraphNode {
+    fn from(value: DataflowGraphNodeEffectPhi) -> Self {
+        Self::EffectPhi(value)
+    }
+}
+
+impl From<DataflowGraphNodeValuePhi> for DataflowGraphNode {
+    fn from(value: DataflowGraphNodeValuePhi) -> Self {
+        Self::ValuePhi(value)
     }
 }
 
@@ -156,11 +169,12 @@ macro_rules! make_conversions {
 }
 
 make_conversions! {
-    phi => DataflowGraphNodePhi : v in Self::Phi(v),
+    effect_phi => DataflowGraphNodeEffectPhi : v in Self::EffectPhi(v),
+    value_phi => DataflowGraphNodeValuePhi : v in Self::ValuePhi(v),
     stmt => DataflowGraphNodeStmt : v in Self::Stmt(v),
     terminator => DataflowGraphNodeTerminator : v in Self::Terminator(v),
     copy output_value => DataflowValueIdx : v in
-        | Self::Phi(DataflowGraphNodePhi { output_value: v, .. })
+        | Self::ValuePhi(DataflowGraphNodeValuePhi { output_value: v, .. })
         | Self::Stmt(DataflowGraphNodeStmt { output_value: Some(v), .. }),
     copy input_effect => DataflowEffectIdx : v in
         | Self::Stmt(DataflowGraphNodeStmt { input_effect: v, .. })
@@ -171,7 +185,14 @@ make_conversions! {
 }
 
 #[derive(Debug, Clone)]
-pub struct DataflowGraphNodePhi {
+pub struct DataflowGraphNodeEffectPhi {
+    pub basic_block: Ptr<BasicBlock>,
+    pub input_effects: SmallVec<[DataflowEffectIdx; 2]>,
+    pub output_effect: DataflowEffectIdx,
+}
+
+#[derive(Debug, Clone)]
+pub struct DataflowGraphNodeValuePhi {
     pub basic_block: Ptr<BasicBlock>,
     pub basic_block_arg: DataflowBasicBlockArg,
     pub input_values: SmallVec<[DataflowValueIdx; 2]>,
@@ -264,7 +285,18 @@ impl DataflowGraph {
                 }
             }
 
-            let argument_phi_nodes = (0..basic_block.deref(ctx).get_num_arguments())
+            let effect_phi_node = graph.node_defs.push(
+                DataflowGraphNodeEffectPhi {
+                    basic_block,
+                    input_effects: SmallVec::new(),
+                    output_effect: graph.node_defs
+                        [graph.op_map[&basic_block.deref(ctx).get_head().unwrap()]]
+                        .unwrap_input_effect(),
+                }
+                .into(),
+            );
+
+            let arg_phi_nodes = (0..basic_block.deref(ctx).get_num_arguments())
                 .map(|basic_block_arg| {
                     let output_value = graph.value_defs.push(DataflowGraphValue {
                         defined_by: graph.node_defs.next_idx(),
@@ -272,7 +304,7 @@ impl DataflowGraph {
                     });
 
                     graph.node_defs.push(
-                        DataflowGraphNodePhi {
+                        DataflowGraphNodeValuePhi {
                             basic_block,
                             basic_block_arg: DataflowBasicBlockArg::from_usize(basic_block_arg),
                             input_values: SmallVec::new(),
@@ -283,13 +315,19 @@ impl DataflowGraph {
                 })
                 .collect();
 
-            graph.bb_map.insert(basic_block, argument_phi_nodes);
+            graph.bb_map.insert(
+                basic_block,
+                DataflowBb {
+                    effect_phi_node,
+                    arg_phi_nodes,
+                },
+            );
         }
 
         // Connect up everything.
         for node_idx in graph.node_defs.indices() {
             match &graph.node_defs[node_idx] {
-                DataflowGraphNode::Phi(DataflowGraphNodePhi { .. }) => {
+                DataflowGraphNode::EffectPhi(_) | DataflowGraphNode::ValuePhi(_) => {
                     // (connected in terminators)
                 }
                 DataflowGraphNode::Stmt(DataflowGraphNodeStmt { operation, .. }) => {
@@ -344,8 +382,18 @@ impl DataflowGraph {
                         .successors()
                         .into_iter()
                         .map(|bb| {
-                            let first_op = bb.deref(ctx).get_head().unwrap();
-                            graph.node_defs[graph.op_map[&first_op]].unwrap_input_effect()
+                            let effect_phi_node = graph.bb_map[&bb].effect_phi_node;
+                            let effect = graph.effect_defs.push(DataflowGraphEffect {
+                                input_to: effect_phi_node,
+                            });
+
+                            graph.node_defs[effect_phi_node]
+                                .as_effect_phi_mut()
+                                .unwrap()
+                                .input_effects
+                                .push(effect);
+
+                            effect
                         })
                         .collect::<SmallVec<[_; 2]>>();
 
@@ -360,7 +408,7 @@ impl DataflowGraph {
                     *input_values = init_input_values;
                     *output_effects = init_output_effects;
 
-                    // Link up phi node inputs.
+                    // Link up value phi node inputs.
                     if operation_r.get_num_successors() == 0 {
                         // Return and unreachable aren't considered branches.
                         continue;
@@ -371,19 +419,19 @@ impl DataflowGraph {
 
                     for succ_idx in 0..operation_r.get_num_successors() {
                         let succ = operation_r.get_successor(succ_idx);
-                        let phi_nodes = graph.bb_map[&succ].clone();
+                        let arg_phi_nodes = &graph.bb_map[&succ].arg_phi_nodes;
 
-                        for (src_value, dst_node) in operation_b
+                        for (src_value, &dst_node) in operation_b
                             .successor_operands(ctx, succ_idx)
                             .into_iter()
-                            .zip(phi_nodes)
+                            .zip(arg_phi_nodes)
                         {
                             let src_value_idx = graph.lookup_value_idx(ctx, src_value);
 
-                            let DataflowGraphNodePhi {
+                            let DataflowGraphNodeValuePhi {
                                 input_values: dst_input_values,
                                 ..
-                            } = graph.node_defs[dst_node].unwrap_phi_mut();
+                            } = graph.node_defs[dst_node].unwrap_value_phi_mut();
 
                             dst_input_values.push(src_value_idx);
                             graph.value_defs[src_value_idx].input_to.push(dst_node);
@@ -400,7 +448,7 @@ impl DataflowGraph {
         match value.defining_entity() {
             DefiningEntity::Op(op) => self.node_defs[self.op_map[&op]].unwrap_output_value(),
             DefiningEntity::Block(bb) => {
-                let phi_node = self.bb_map[&bb][value.find_index(ctx)];
+                let phi_node = self.bb_map[&bb].arg_phi_nodes[value.find_index(ctx)];
                 self.node_defs[phi_node].unwrap_output_value()
             }
         }
@@ -408,7 +456,7 @@ impl DataflowGraph {
 
     pub fn is_input_value(&self, ctx: &Context, value: DataflowValueIdx) -> bool {
         match &self.node_defs[self.value_defs[value].defined_by] {
-            DataflowGraphNode::Phi(DataflowGraphNodePhi { basic_block, .. })
+            DataflowGraphNode::ValuePhi(DataflowGraphNodeValuePhi { basic_block, .. })
                 if basic_block.deref(ctx).get_prev().is_none() =>
             {
                 true
@@ -574,11 +622,17 @@ pub trait DataflowAnalysis<'c>: Sized {
 
     fn graph(&self) -> &'c DataflowGraph;
 
-    fn new_effect(&mut self, is_input: bool) -> Self::Effect;
+    fn init_effect(&mut self, is_input: bool) -> Self::Effect;
 
-    fn new_var(&mut self, is_input: bool) -> Self::Value;
+    fn init_value(&mut self, is_input: bool) -> Self::Value;
 
-    fn trans_phi(
+    fn trans_effect_phi(
+        &mut self,
+        input_values: &[&Self::Effect],
+        output_value: &mut DataflowSlot<Self::Effect>,
+    );
+
+    fn trans_value_phi(
         &mut self,
         input_values: &[&Self::Value],
         output_value: &mut DataflowSlot<Self::Value>,
@@ -619,7 +673,7 @@ pub trait DataflowAnalysis<'c>: Sized {
                 }
 
                 DataflowSlot {
-                    lattice: self.new_effect(is_input),
+                    lattice: self.init_effect(is_input),
                     user_marked_dirty: false,
                     in_work_list: is_input,
                 }
@@ -636,7 +690,7 @@ pub trait DataflowAnalysis<'c>: Sized {
                 }
 
                 DataflowSlot {
-                    lattice: self.new_var(is_input),
+                    lattice: self.init_value(is_input),
                     user_marked_dirty: false,
                     in_work_list: is_input,
                 }
@@ -646,7 +700,26 @@ pub trait DataflowAnalysis<'c>: Sized {
         while let Some(affected_slot) = scratch.work_list.pop_front() {
             for &affected_node in graph.affected_nodes(affected_slot) {
                 match &graph.node_defs[affected_node] {
-                    DataflowGraphNode::Phi(DataflowGraphNodePhi {
+                    DataflowGraphNode::EffectPhi(DataflowGraphNodeEffectPhi {
+                        basic_block: _,
+                        input_effects: input_effect_indices,
+                        output_effect: output_effect_idx,
+                    }) => {
+                        let mut effect_borrows =
+                            scratch.borrows.builder(scratch.effects.as_raw_slice_mut());
+
+                        let input_effects = scratch.vec_of_ptrs_1.build(
+                            input_effect_indices
+                                .iter()
+                                .map(|idx| &effect_borrows.get(idx.index()).lattice),
+                        );
+                        let output_effect = effect_borrows.get(output_effect_idx.index());
+
+                        self.trans_effect_phi(input_effects, output_effect);
+
+                        scratch.process_user_mark((*output_effect_idx).into());
+                    }
+                    DataflowGraphNode::ValuePhi(DataflowGraphNodeValuePhi {
                         basic_block: _,
                         basic_block_arg: _,
                         input_values: input_value_indices,
@@ -662,7 +735,7 @@ pub trait DataflowAnalysis<'c>: Sized {
                         );
                         let output_value = value_borrows.get(output_value_idx.index());
 
-                        self.trans_phi(input_values, output_value);
+                        self.trans_value_phi(input_values, output_value);
 
                         scratch.process_user_mark((*output_value_idx).into());
                     }
