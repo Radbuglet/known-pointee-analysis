@@ -478,11 +478,23 @@ pub struct DataflowScratch<E, S> {
 }
 
 struct DataflowScratchEntry<T> {
-    state: T,
+    lattice: T,
     dirty: bool,
 }
 
 impl<E, S> DataflowScratch<E, S> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn effect(&self, effect: DataflowEffectIdx) -> &E {
+        &self.effects[effect].lattice
+    }
+
+    pub fn state(&self, effect: DataflowStateIdx) -> &S {
+        &self.states[effect].lattice
+    }
+
     fn mark_dirty(&mut self, target: DataflowSlotIdx) {
         match target {
             DataflowSlotIdx::Effect(idx) => {
@@ -499,19 +511,55 @@ impl<E, S> DataflowScratch<E, S> {
     }
 }
 
+pub struct MutationTracker<'a, L> {
+    pub dirty: &'a mut bool,
+    pub value: &'a mut L,
+}
+
 pub trait DataflowAnalysis<'c>: Sized {
-    type Effect: DataflowLattice<Self>;
-    type State: DataflowLattice<Self>;
+    type Effect;
+    type State;
 
     fn ctx(&self) -> &'c Context;
 
     fn graph(&self) -> &'c DataflowGraph;
+
+    fn new_effect(&mut self, is_input: bool) -> Self::Effect;
+
+    fn new_state(&mut self, is_input: bool) -> Self::State;
+
+    fn trans_phi(
+        &mut self,
+        input_states: &[&Self::State],
+        output_state: MutationTracker<'_, Self::State>,
+    );
+
+    fn trans_stmt(
+        &mut self,
+        operation: Ptr<Operation>,
+        input_effect: &Self::Effect,
+        output_effect: &mut Self::Effect,
+        input_states: &[&Self::State],
+        output_state: Option<MutationTracker<'_, Self::State>>,
+    );
+
+    fn trans_terminator(
+        &mut self,
+        operation: Ptr<Operation>,
+        input_effect: &Self::Effect,
+        input_states: &[&Self::State],
+        output_effects: &[MutationTracker<'_, Self::Effect>],
+    );
 
     fn run(&mut self, scratch: &mut DataflowScratch<Self::Effect, Self::State>) {
         let ctx = self.ctx();
         let graph = self.graph();
 
         // Setup initial states
+        let mut state_ref_buffer = Vec::new();
+        let mut state_mut_buffer = Vec::new();
+        let mut effect_mut_buffer = Vec::new();
+
         scratch.work_list.clear();
 
         scratch.effects.clear();
@@ -522,16 +570,11 @@ pub trait DataflowAnalysis<'c>: Sized {
 
                 if is_input {
                     scratch.work_list.push_back(effect.into());
+                }
 
-                    DataflowScratchEntry {
-                        state: Self::Effect::top(self),
-                        dirty: false,
-                    }
-                } else {
-                    DataflowScratchEntry {
-                        state: Self::Effect::bot(self),
-                        dirty: false,
-                    }
+                DataflowScratchEntry {
+                    lattice: self.new_effect(is_input),
+                    dirty: is_input,
                 }
             }));
 
@@ -543,16 +586,11 @@ pub trait DataflowAnalysis<'c>: Sized {
 
                 if is_input {
                     scratch.work_list.push_back(state.into());
+                }
 
-                    DataflowScratchEntry {
-                        state: Self::State::top(self),
-                        dirty: false,
-                    }
-                } else {
-                    DataflowScratchEntry {
-                        state: Self::State::bot(self),
-                        dirty: false,
-                    }
+                DataflowScratchEntry {
+                    lattice: self.new_state(is_input),
+                    dirty: is_input,
                 }
             }));
 
@@ -566,34 +604,23 @@ pub trait DataflowAnalysis<'c>: Sized {
                         input_states,
                         output_state,
                     }) => {
-                        Self::State::reset_bot(self, &mut scratch.states[*output_state].state);
-
-                        for &input_state in input_states {
-                            let [output_state, input_state] = scratch
-                                .states
-                                .as_raw_slice_mut()
-                                .get_disjoint_mut([output_state.index(), input_state.index()])
-                                .unwrap();
-
-                            Self::State::join(self, &mut output_state.state, &input_state.state);
-                        }
-
-                        scratch.mark_dirty((*output_state).into());
+                        todo!()
                     }
-                    DataflowGraphNode::Stmt(_) => todo!(),
-                    DataflowGraphNode::Terminator(_) => todo!(),
+                    DataflowGraphNode::Stmt(DataflowGraphNodeStmt {
+                        operation,
+                        input_effect,
+                        output_effect,
+                        input_states,
+                        output_state,
+                    }) => todo!(),
+                    DataflowGraphNode::Terminator(DataflowGraphNodeTerminator {
+                        operation,
+                        input_effect,
+                        input_states,
+                        output_effects,
+                    }) => todo!(),
                 }
             }
         }
     }
-}
-
-pub trait DataflowLattice<D> {
-    fn bot(df: &mut D) -> Self;
-
-    fn top(df: &mut D) -> Self;
-
-    fn reset_bot(df: &mut D, target: &mut Self);
-
-    fn join(df: &mut D, target: &mut Self, other: &Self) -> bool;
 }
