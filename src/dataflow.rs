@@ -466,28 +466,14 @@ impl DataflowGraph {
     }
 
     pub fn is_input_effect(&self, ctx: &Context, effect: DataflowEffectIdx) -> bool {
-        let op = self.node_defs[self.effect_defs[effect].input_to]
-            .as_operation()
-            .unwrap()
-            .deref(ctx);
-
-        if op.get_prev().is_some() {
-            // (not the first operation)
-            return false;
+        match &self.node_defs[self.effect_defs[effect].input_to] {
+            DataflowGraphNode::EffectPhi(DataflowGraphNodeEffectPhi { basic_block, .. })
+                if basic_block.deref(ctx).get_prev().is_none() =>
+            {
+                true
+            }
+            _ => false,
         }
-
-        if op
-            .get_parent_block()
-            .unwrap()
-            .deref(ctx)
-            .get_prev()
-            .is_some()
-        {
-            // (not the entry block)
-            return false;
-        }
-
-        true
     }
 
     pub fn affected_nodes(&self, slot: DataflowSlotIdx) -> &[DataflowNodeIdx] {
