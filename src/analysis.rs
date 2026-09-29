@@ -12,7 +12,7 @@ use pliron::{
     value::Value,
 };
 use pliron_llvm::{
-    ops::{CondBrOp, ConstantOp, FuncOp, LoadOp, StoreOp},
+    ops::{BrOp, CondBrOp, ConstantOp, FuncOp, LoadOp, StoreOp, TruncOp},
     types::PointerType,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -181,10 +181,19 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
 
         // Constant
         if let Some(operation) = Operation::get_op::<ConstantOp>(operation, ctx) {
-            println!("{}", operation.get_value(ctx).disp(ctx));
-
             output_effect.set_value_ref(input_effect);
             output_state.unwrap().set_value(OptimisticScalar::Known(0)); // TODO: operation.get_value(ctx)
+
+            return;
+        }
+
+        // Truncate
+        if let Some(_operation) = Operation::get_op::<TruncOp>(operation, ctx) {
+            output_effect.set_value_ref(input_effect);
+
+            let mut new_output_state = input_states[0].clone();
+            new_output_state.map(|value| value & 1); // TODO
+            output_state.unwrap().set_value(new_output_state);
 
             return;
         }
@@ -193,7 +202,7 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
         if let Some(operation) = Operation::get_op::<StoreOp>(operation, ctx) {
             let ptr = self.pointers[&operation.get_operand_address(ctx)];
             let mut new_output_effect = input_effect.clone();
-            new_output_effect.write(ptr, input_states[1]);
+            new_output_effect.write(ptr, input_states[0]);
             output_effect.set_value(new_output_effect);
 
             assert!(output_state.is_none());
@@ -230,13 +239,22 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
         let ctx = self.ctx();
 
         // Conditional branch
-        if let Some(operation) = Operation::get_op::<CondBrOp>(operation, ctx) {
+        if let Some(_operation) = Operation::get_op::<CondBrOp>(operation, ctx) {
             let cond = input_states[0];
             let [truthy, falsy] = output_effects else {
                 unreachable!()
             };
 
             // TODO
+
+            return;
+        }
+
+        // Unconditional branch
+        if let Some(_operation) = Operation::get_op::<BrOp>(operation, ctx) {
+            for output_effect in output_effects {
+                output_effect.set_value_ref(input_effect);
+            }
 
             return;
         }
@@ -279,13 +297,19 @@ impl PointeeEffectLattice {
             OptimisticScalar::Unknown(_) => None,
         };
 
-        Rc::make_mut(&mut self.known_pointees.raw).retain(|&other_ptr, &mut other_value| {
+        let map = Rc::make_mut(&mut self.known_pointees.raw);
+
+        map.retain(|&other_ptr, &mut other_value| {
             if self.no_alias.has(ptr, other_ptr) {
                 return true;
             }
 
             Some(other_value) == value
         });
+
+        if let Some(value) = value {
+            map.insert(ptr, value);
+        }
     }
 
     pub fn arbitrary_write(&mut self) {
