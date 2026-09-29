@@ -11,7 +11,10 @@ use pliron_llvm::{
     llvm_sys::core::{LLVMContext, LLVMModule},
 };
 
-use crate::analysis::PointeeConstantsFacts;
+use crate::{
+    analysis::PointeeConstantsFacts,
+    dataflow::{DataflowGraph, dataflow_pretty},
+};
 
 pub mod analysis;
 pub mod dataflow;
@@ -83,9 +86,18 @@ fn main() -> anyhow::Result<()> {
     let module_defs = module.get_body(&ctx, 0);
 
     for op in module_defs.deref(&ctx).iter(&ctx) {
-        let facts = analysis_mgr.compute_analysis::<PointeeConstantsFacts>(op, &ctx)?;
+        analysis_mgr.compute_analysis::<PointeeConstantsFacts>(op, &ctx)?;
 
-        println!("{}\n----\n{facts:#?}\n\n", op.disp(&ctx));
+        let PointeeConstantsFacts {
+            facts: Some(scratch),
+        } = &*analysis_mgr.try_get_analysis(op).unwrap()
+        else {
+            continue;
+        };
+
+        let graph = &*analysis_mgr.try_get_analysis::<DataflowGraph>(op).unwrap();
+
+        println!("{}", dataflow_pretty(&ctx, graph, scratch));
     }
 
     Ok(())

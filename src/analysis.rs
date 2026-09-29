@@ -1,3 +1,4 @@
+use core::fmt;
 use std::rc::Rc;
 
 use pliron::{
@@ -6,13 +7,12 @@ use pliron::{
     graph::walkers::{self, WalkConfig},
     operation::Operation,
     pass::{Analysis, AnalysisManager},
-    printable::Printable,
     result::Error as PlironError,
     r#type::Typed,
     value::Value,
 };
 use pliron_llvm::{
-    ops::{ConstantOp, FuncOp, LoadOp, StoreOp},
+    ops::{CondBrOp, ConstantOp, FuncOp, LoadOp, StoreOp},
     types::PointerType,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -21,7 +21,9 @@ use crate::dataflow::{DataflowAnalysis, DataflowGraph, DataflowScratch, Dataflow
 
 // === Driver === //
 
-pub struct PointeeConstantsFacts {}
+pub struct PointeeConstantsFacts {
+    pub facts: Option<DataflowScratch<PointeeEffectLattice, OptimisticScalar>>,
+}
 
 impl Analysis for PointeeConstantsFacts {
     fn name(&self) -> &str {
@@ -34,11 +36,11 @@ impl Analysis for PointeeConstantsFacts {
         analyses: &mut AnalysisManager,
     ) -> Result<Self, PlironError> {
         let Some(op) = Operation::get_op::<FuncOp>(raw_op, ctx) else {
-            return Ok(Self {});
+            return Ok(Self { facts: None });
         };
 
         if op.get_region(ctx).is_none() {
-            return Ok(Self {});
+            return Ok(Self { facts: None });
         }
 
         let graph = analyses.get_analysis::<DataflowGraph>(raw_op, ctx).unwrap();
@@ -51,11 +53,13 @@ impl Analysis for PointeeConstantsFacts {
 
         analysis.discover_ptrs_in_op(raw_op);
 
-        let mut scratch = DataflowScratch::new();
+        let mut scratch = DataflowScratch::default();
 
         analysis.run(&mut scratch);
 
-        Ok(Self {})
+        Ok(Self {
+            facts: Some(scratch),
+        })
     }
 }
 
@@ -174,7 +178,6 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
         output_state: Option<&mut DataflowSlot<Self::Value>>,
     ) {
         let ctx = self.ctx();
-        eprintln!("{}", operation.disp(ctx));
 
         // Constant
         if let Some(operation) = Operation::get_op::<ConstantOp>(operation, ctx) {
@@ -225,10 +228,18 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
         output_effects: &mut [&mut DataflowSlot<Self::Effect>],
     ) {
         let ctx = self.ctx();
-        eprintln!("{}", operation.disp(ctx));
 
         // Conditional branch
-        // TODO
+        if let Some(operation) = Operation::get_op::<CondBrOp>(operation, ctx) {
+            let cond = input_states[0];
+            let [truthy, falsy] = output_effects else {
+                unreachable!()
+            };
+
+            // TODO
+
+            return;
+        }
 
         // Fallback
         let mut new_output_effect = input_effect.clone();
@@ -287,9 +298,15 @@ impl PointeeEffectLattice {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Default)]
+#[derive(Clone, Eq, PartialEq, Default)]
 pub struct NoAliasSet {
     pairs: FxHashSet<[PtrIdx; 2]>,
+}
+
+impl fmt::Debug for NoAliasSet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.pairs.fmt(f)
+    }
 }
 
 impl NoAliasSet {
@@ -310,9 +327,15 @@ impl NoAliasSet {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Default)]
+#[derive(Clone, Eq, PartialEq, Default)]
 pub struct KnownPointeeMap {
     pub raw: Rc<FxHashMap<PtrIdx, u64>>,
+}
+
+impl fmt::Debug for KnownPointeeMap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.raw.fmt(f)
+    }
 }
 
 impl KnownPointeeMap {

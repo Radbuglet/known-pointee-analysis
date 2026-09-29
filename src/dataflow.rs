@@ -1,7 +1,12 @@
 // Pliron doesn't really have a dataflow analysis framework so I wrote one myself. It's terrible.
 // I'm so so very sorry.
 
-use std::{collections::VecDeque, marker::PhantomData, mem, slice};
+use std::{
+    collections::VecDeque,
+    fmt::{self, Display},
+    marker::PhantomData,
+    mem, slice,
+};
 
 use index_vec::{IndexVec, define_index_type};
 use pliron::{
@@ -57,6 +62,7 @@ define_index_type! {
 
 #[derive(Debug, Clone)]
 pub struct DataflowGraph {
+    pub region: Ptr<Region>,
     pub node_defs: IndexVec<DataflowNodeIdx, DataflowGraphNode>,
     pub effect_defs: IndexVec<DataflowEffectIdx, DataflowGraphEffect>,
     pub value_defs: IndexVec<DataflowValueIdx, DataflowGraphValue>,
@@ -230,6 +236,7 @@ pub struct DataflowGraphValue {
 impl DataflowGraph {
     pub fn new(ctx: &Context, region: Ptr<Region>) -> Self {
         let mut graph = DataflowGraph {
+            region,
             node_defs: IndexVec::default(),
             effect_defs: IndexVec::default(),
             value_defs: IndexVec::default(),
@@ -503,16 +510,16 @@ impl Analysis for DataflowGraph {
 
 // === DataflowAnalysis === //
 
-pub struct DataflowScratch<E, S> {
+pub struct DataflowScratch<E, V> {
     work_list: VecDeque<DataflowSlotIdx>,
     effects: IndexVec<DataflowEffectIdx, DataflowSlot<E>>,
-    values: IndexVec<DataflowValueIdx, DataflowSlot<S>>,
+    values: IndexVec<DataflowValueIdx, DataflowSlot<V>>,
     vec_of_ptrs_1: VecOfPtrScratch,
     vec_of_ptrs_2: VecOfPtrScratch,
     borrows: DisjointBorrowsScratch,
 }
 
-impl<E, S> Default for DataflowScratch<E, S> {
+impl<E, V> Default for DataflowScratch<E, V> {
     fn default() -> Self {
         Self {
             work_list: VecDeque::default(),
@@ -525,16 +532,12 @@ impl<E, S> Default for DataflowScratch<E, S> {
     }
 }
 
-impl<E, S> DataflowScratch<E, S> {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
+impl<E, V> DataflowScratch<E, V> {
     pub fn effect(&self, effect: DataflowEffectIdx) -> &E {
         &self.effects[effect].lattice
     }
 
-    pub fn value(&self, effect: DataflowValueIdx) -> &S {
+    pub fn value(&self, effect: DataflowValueIdx) -> &V {
         &self.values[effect].lattice
     }
 
@@ -789,6 +792,124 @@ pub trait DataflowAnalysis<'c>: Sized {
             }
         }
     }
+}
+
+// === Pretty === //
+
+mod pretty {
+    use std::fmt;
+
+    use pliron::{
+        common_traits::Named as _,
+        context::Context,
+        irfmt::printers::{iter_with_sep, op::typed_symb_op_header},
+        linked_list::ContainsLinkedList as _,
+        operation::Operation,
+        printable::{ListSeparator, Printable as _},
+        r#type::Typed as _,
+    };
+    use pliron_llvm::ops::FuncOp;
+
+    use crate::dataflow::DataflowGraphNodeStmt;
+
+    use super::{DataflowGraph, DataflowScratch};
+
+    pub struct DataflowFactPretty<'a, E, V> {
+        pub ctx: &'a Context,
+        pub graph: &'a DataflowGraph,
+        pub scratch: &'a DataflowScratch<E, V>,
+    }
+
+    impl<E, V> fmt::Display for DataflowFactPretty<'_, E, V>
+    where
+        E: fmt::Debug,
+        V: fmt::Debug,
+    {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            let Self {
+                ctx,
+                graph,
+                scratch,
+            } = self;
+
+            writeln!(
+                f,
+                "{}",
+                typed_symb_op_header(
+                    &Operation::get_op::<FuncOp>(self.graph.region.deref(ctx).get_parent_op(), ctx)
+                        .unwrap(),
+                )
+                .disp(ctx)
+            )?;
+
+            for bb in graph.region.deref(ctx).iter(ctx) {
+                let bb_r = bb.deref(ctx);
+
+                writeln!(
+                    f,
+                    "    ^{}({})",
+                    bb_r.unique_name(ctx),
+                    iter_with_sep(
+                        bb_r.arguments().map(|arg| {
+                            format!("{}: {}", arg.disp(ctx), arg.get_type(ctx).disp(ctx))
+                        }),
+                        ListSeparator::CharSpace(',')
+                    )
+                    .disp(ctx),
+                )?;
+
+                writeln!(
+                    f,
+                    "    -> effects: {:?}",
+                    scratch.effect(
+                        graph.node_defs[graph.bb_map[&bb].effect_phi_node]
+                            .unwrap_effect_phi_ref()
+                            .output_effect
+                    )
+                )?;
+
+                for stmt in bb_r.iter(ctx) {
+                    writeln!(f, "        {}", stmt.disp(ctx))?;
+
+                    if let Some(output) = graph.node_defs[graph.op_map[&stmt]].as_output_value() {
+                        writeln!(f, "        -> result: {:?}", scratch.value(output))?;
+                    }
+
+                    if let Some(DataflowGraphNodeStmt { output_effect, .. }) =
+                        graph.node_defs[graph.op_map[&stmt]].as_stmt_ref()
+                    {
+                        writeln!(
+                            f,
+                            "        -> effects: {:?}",
+                            scratch.effect(*output_effect)
+                        )?;
+                    }
+
+                    writeln!(f)?;
+                }
+
+                writeln!(f)?;
+            }
+
+            Ok(())
+        }
+    }
+}
+
+pub fn dataflow_pretty<'a, E, V>(
+    ctx: &'a Context,
+    graph: &'a DataflowGraph,
+    scratch: &'a DataflowScratch<E, V>,
+) -> Box<dyn Display + 'a>
+where
+    E: fmt::Debug,
+    V: fmt::Debug,
+{
+    Box::new(pretty::DataflowFactPretty {
+        ctx,
+        graph,
+        scratch,
+    })
 }
 
 // === DataflowSlot === //
