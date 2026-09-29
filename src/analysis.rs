@@ -306,10 +306,17 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
                     for (output, taken_if) in [(truthy, 1), (falsy, 0)] {
                         let mut new_output = input_effect.clone();
 
-                        // FIXME: This is wrong and I need to think about it a bit more.
-                        for (&if_read, &we_get) in hypothesis.branches.raw.iter() {
+                        for (&if_aliased_with, &we_get) in hypothesis.branches.raw.iter() {
                             if taken_if != we_get {
-                                new_output.no_alias.add(hypothesis.read_src, if_read);
+                                // If this branch is taken *iff* the scrutinee is `taken_if` and we
+                                // know that the scrutinee would be the opposite—`we_get`—if, at the
+                                // point `hypothesis.read_src` was last loaded from memory, it
+                                // aliased with `if_aliased_with`, we know that, for the branch to
+                                // be taken, `hypothesis.read_src` and `if_aliased_with` may not
+                                // alias.
+                                new_output
+                                    .no_alias
+                                    .add(hypothesis.read_src, if_aliased_with);
                             }
                         }
 
