@@ -1,7 +1,13 @@
 // Pliron doesn't really have a dataflow analysis framework so I wrote one myself. It's terrible.
 // I'm so so very sorry.
 
-use std::{collections::VecDeque, marker::PhantomData, mem, slice};
+use std::{
+    collections::VecDeque,
+    marker::PhantomData,
+    mem,
+    ops::{BitOr, BitOrAssign},
+    slice,
+};
 
 use index_vec::{IndexVec, define_index_type};
 use pliron::{
@@ -571,35 +577,6 @@ impl<E, S> DataflowScratch<E, S> {
     }
 }
 
-pub struct DataflowSlot<T> {
-    lattice: T,
-    user_marked_dirty: bool,
-    in_work_list: bool,
-}
-
-impl<T> DataflowSlot<T> {
-    pub fn value(&self) -> &T {
-        &self.lattice
-    }
-
-    pub fn value_mut_marked(&mut self) -> &mut T {
-        self.user_marked_dirty = true;
-        &mut self.lattice
-    }
-
-    pub fn value_mut_unmarked(&mut self) -> &mut T {
-        &mut self.lattice
-    }
-
-    pub fn mark_dirty(&mut self) {
-        self.user_marked_dirty = true;
-    }
-
-    pub fn maybe_mark_dirty(&mut self, cond: bool) {
-        self.user_marked_dirty |= cond;
-    }
-}
-
 pub trait DataflowAnalysis<'c>: Sized {
     type Effect;
     type Value;
@@ -806,6 +783,87 @@ pub trait DataflowAnalysis<'c>: Sized {
                 }
             }
         }
+    }
+}
+
+// === DataflowSlot === //
+
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
+pub enum DirtyFlag {
+    Dirty,
+    Clean,
+}
+
+impl DirtyFlag {
+    pub fn from_is_dirty(v: bool) -> Self {
+        match v {
+            true => DirtyFlag::Dirty,
+            false => DirtyFlag::Clean,
+        }
+    }
+
+    pub fn is_dirty(self) -> bool {
+        match self {
+            DirtyFlag::Dirty => true,
+            DirtyFlag::Clean => false,
+        }
+    }
+}
+
+impl BitOr for DirtyFlag {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self::from_is_dirty(self.is_dirty() | rhs.is_dirty())
+    }
+}
+
+impl BitOrAssign for DirtyFlag {
+    fn bitor_assign(&mut self, rhs: Self) {
+        *self = *self | rhs;
+    }
+}
+
+pub struct DataflowSlot<T> {
+    lattice: T,
+    user_marked_dirty: bool,
+    in_work_list: bool,
+}
+
+impl<T> DataflowSlot<T> {
+    pub fn value(&self) -> &T {
+        &self.lattice
+    }
+
+    pub fn value_mut_marked(&mut self) -> &mut T {
+        self.user_marked_dirty = true;
+        &mut self.lattice
+    }
+
+    pub fn value_mut_unmarked(&mut self) -> &mut T {
+        &mut self.lattice
+    }
+
+    pub fn set_value(&mut self, value: T)
+    where
+        T: Eq,
+    {
+        self.maybe_mark_dirty(DirtyFlag::from_is_dirty(self.lattice != value));
+        self.lattice = value;
+    }
+
+    pub fn update(&mut self, f: impl FnOnce(&mut T, &mut DirtyFlag)) {
+        let mut flag = DirtyFlag::Clean;
+        f(&mut self.lattice, &mut flag);
+        self.maybe_mark_dirty(flag);
+    }
+
+    pub fn mark_dirty(&mut self) {
+        self.user_marked_dirty = true;
+    }
+
+    pub fn maybe_mark_dirty(&mut self, flag: DirtyFlag) {
+        self.user_marked_dirty |= flag.is_dirty();
     }
 }
 
