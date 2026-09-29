@@ -112,8 +112,8 @@ impl MeowAnalysis<'_> {
             .downcast_ref::<PointerType>()
             .is_some()
         {
-            let idx = PtrIdx(self.pointers.len() as u32);
-            self.pointers.insert(value, idx);
+            let next_idx = PtrIdx(self.pointers.len() as u32);
+            self.pointers.entry(value).or_insert(next_idx);
         }
     }
 }
@@ -224,7 +224,8 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
                 (OptimisticScalar::Known(lhs), OptimisticScalar::Known(rhs)) => {
                     OptimisticScalar::Known(if lhs == rhs { 1 } else { 0 })
                 }
-                (OptimisticScalar::Known(known), OptimisticScalar::Unknown(Some(unknown))) => {
+                (OptimisticScalar::Known(known), OptimisticScalar::Unknown(Some(unknown)))
+                | (OptimisticScalar::Unknown(Some(unknown)), OptimisticScalar::Known(known)) => {
                     let mut branches = unknown.branches.clone();
 
                     branches.map(|potential| if potential == *known { 1 } else { 0 });
@@ -287,7 +288,27 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
                 unreachable!()
             };
 
-            // TODO
+            match cond {
+                OptimisticScalar::Unknown(Some(hypothesis)) => {
+                    for (output, taken_if) in [(truthy, 1), (falsy, 0)] {
+                        let mut new_output = input_effect.clone();
+
+                        for (&if_read, &we_get) in hypothesis.branches.raw.iter() {
+                            if taken_if != we_get {
+                                new_output.no_alias.add(hypothesis.read_src, if_read);
+                            }
+                        }
+
+                        output.set_value(new_output);
+                    }
+                }
+                // TODO: conditional dead code elimination for known values
+                OptimisticScalar::Known(_) | OptimisticScalar::Unknown(None) => {
+                    for output_effect in output_effects {
+                        output_effect.set_value_ref(input_effect);
+                    }
+                }
+            }
 
             return;
         }
