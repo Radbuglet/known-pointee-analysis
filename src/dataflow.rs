@@ -1,13 +1,7 @@
 // Pliron doesn't really have a dataflow analysis framework so I wrote one myself. It's terrible.
 // I'm so so very sorry.
 
-use std::{
-    collections::VecDeque,
-    marker::PhantomData,
-    mem,
-    ops::{BitOr, BitOrAssign},
-    slice,
-};
+use std::{collections::VecDeque, marker::PhantomData, mem, slice};
 
 use index_vec::{IndexVec, define_index_type};
 use pliron::{
@@ -615,7 +609,7 @@ pub trait DataflowAnalysis<'c>: Sized {
         operation: Ptr<Operation>,
         input_effect: &Self::Effect,
         input_values: &[&Self::Value],
-        output_effects: &[&mut DataflowSlot<Self::Effect>],
+        output_effects: &mut [&mut DataflowSlot<Self::Effect>],
     );
 
     fn run(&mut self, scratch: &mut DataflowScratch<Self::Effect, Self::Value>) {
@@ -788,42 +782,6 @@ pub trait DataflowAnalysis<'c>: Sized {
 
 // === DataflowSlot === //
 
-#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
-pub enum DirtyFlag {
-    Dirty,
-    Clean,
-}
-
-impl DirtyFlag {
-    pub fn from_is_dirty(v: bool) -> Self {
-        match v {
-            true => DirtyFlag::Dirty,
-            false => DirtyFlag::Clean,
-        }
-    }
-
-    pub fn is_dirty(self) -> bool {
-        match self {
-            DirtyFlag::Dirty => true,
-            DirtyFlag::Clean => false,
-        }
-    }
-}
-
-impl BitOr for DirtyFlag {
-    type Output = Self;
-
-    fn bitor(self, rhs: Self) -> Self::Output {
-        Self::from_is_dirty(self.is_dirty() | rhs.is_dirty())
-    }
-}
-
-impl BitOrAssign for DirtyFlag {
-    fn bitor_assign(&mut self, rhs: Self) {
-        *self = *self | rhs;
-    }
-}
-
 pub struct DataflowSlot<T> {
     lattice: T,
     user_marked_dirty: bool,
@@ -848,22 +806,24 @@ impl<T> DataflowSlot<T> {
     where
         T: Eq,
     {
-        self.maybe_mark_dirty(DirtyFlag::from_is_dirty(self.lattice != value));
+        self.maybe_mark_dirty(self.lattice != value);
         self.lattice = value;
     }
 
-    pub fn update(&mut self, f: impl FnOnce(&mut T, &mut DirtyFlag)) {
-        let mut flag = DirtyFlag::Clean;
-        f(&mut self.lattice, &mut flag);
-        self.maybe_mark_dirty(flag);
+    pub fn set_value_ref(&mut self, value: &T)
+    where
+        T: Eq + Clone,
+    {
+        self.maybe_mark_dirty(self.lattice != *value);
+        self.lattice = value.clone();
     }
 
     pub fn mark_dirty(&mut self) {
         self.user_marked_dirty = true;
     }
 
-    pub fn maybe_mark_dirty(&mut self, flag: DirtyFlag) {
-        self.user_marked_dirty |= flag.is_dirty();
+    pub fn maybe_mark_dirty(&mut self, is_dirty: bool) {
+        self.user_marked_dirty |= is_dirty;
     }
 }
 
