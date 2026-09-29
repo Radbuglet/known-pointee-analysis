@@ -1,3 +1,8 @@
+<0: i32>
+<1: i8>
+<0: i8>
+<1: i32>
+<1024: i32>
 llvm.func @_Z4meowPbS_: llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variadic = false>
   [llvm_function_linkage: llvm.linkage ExternalLinkage] 
 {

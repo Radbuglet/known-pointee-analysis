@@ -4,13 +4,18 @@ use index_vec::{IndexVec, define_index_type};
 use pliron::{
     builtin::op_interfaces::AtMostOneRegionInterface as _,
     context::{Context, Ptr},
+    graph::walkers::{self, WalkConfig},
     operation::Operation,
     pass::{Analysis, AnalysisManager},
     printable::Printable,
     result::Error as PlironError,
+    r#type::Typed,
     value::Value,
 };
-use pliron_llvm::ops::{ConstantOp, FuncOp, LoadOp, StoreOp};
+use pliron_llvm::{
+    ops::{ConstantOp, FuncOp, LoadOp, StoreOp},
+    types::PointerType,
+};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::dataflow::{DataflowAnalysis, DataflowGraph, DataflowScratch, DataflowSlot};
@@ -44,6 +49,9 @@ impl Analysis for PointeeConstantsFacts {
             graph: &graph,
             pointers: FxHashMap::default(),
         };
+
+        analysis.discover_ptrs_in_op(raw_op);
+
         let mut scratch = DataflowScratch::new();
 
         analysis.run(&mut scratch);
@@ -58,6 +66,48 @@ pub struct MeowAnalysis<'a> {
     ctx: &'a Context,
     graph: &'a DataflowGraph,
     pointers: FxHashMap<Value, PtrIdx>,
+}
+
+impl MeowAnalysis<'_> {
+    pub fn discover_ptrs_in_op(&mut self, op: Ptr<Operation>) {
+        let ctx = self.ctx();
+
+        walkers::uninterruptible::immutable::walk_op(
+            ctx,
+            self,
+            &WalkConfig::default(),
+            op,
+            |ctx, analysis, node| match node {
+                walkers::IRNode::Operation(node) => {
+                    for value in node.deref(ctx).results() {
+                        analysis.visit_value_for_ptrs(value);
+                    }
+                }
+                walkers::IRNode::BasicBlock(node) => {
+                    for value in node.deref(ctx).arguments() {
+                        analysis.visit_value_for_ptrs(value);
+                    }
+                }
+                walkers::IRNode::Region(_) => {
+                    // (ignored)
+                }
+            },
+        );
+    }
+
+    fn visit_value_for_ptrs(&mut self, value: Value) {
+        let ctx = self.ctx();
+
+        if value
+            .get_type(ctx)
+            .deref(ctx)
+            .downcast_ref::<PointerType>()
+            .is_some()
+        {
+            let idx = PtrIdx::from_usize(self.pointers.len());
+            self.pointers.insert(value, idx);
+        }
+    }
 }
 
 impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
@@ -131,17 +181,12 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
         let ctx = self.ctx();
         eprintln!("{}", operation.disp(ctx));
 
-        /*
         // Constant
         if let Some(operation) = Operation::get_op::<ConstantOp>(operation, ctx) {
             println!("{}", operation.get_value(ctx).disp(ctx));
 
-            // output_effect.set_value_ref(input_effect);
-            // output_state
-            //     .unwrap()
-            //     .set_value(KnownScalar::Exactly(operation.get_value(ctx)));
-
-            todo!();
+            output_effect.set_value_ref(input_effect);
+            output_state.unwrap().set_value(KnownScalar::Exactly(0)); // TODO: operation.get_value(ctx)
 
             return;
         }
@@ -166,7 +211,6 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
 
             return;
         }
-        */
 
         // Fallback
         if let Some(output_state) = output_state {
