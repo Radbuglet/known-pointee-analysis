@@ -1,6 +1,5 @@
-use std::ops::{BitOr, BitOrAssign};
+use std::rc::Rc;
 
-use index_vec::{IndexVec, define_index_type};
 use pliron::{
     builtin::op_interfaces::AtMostOneRegionInterface as _,
     context::{Context, Ptr},
@@ -104,15 +103,15 @@ impl MeowAnalysis<'_> {
             .downcast_ref::<PointerType>()
             .is_some()
         {
-            let idx = PtrIdx::from_usize(self.pointers.len());
+            let idx = PtrIdx(self.pointers.len() as u32);
             self.pointers.insert(value, idx);
         }
     }
 }
 
 impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
-    type Effect = KnownPointees;
-    type Value = KnownScalar;
+    type Effect = PointeeEffectLattice;
+    type Value = OptimisticScalar;
 
     fn ctx(&self) -> &'a Context {
         self.ctx
@@ -123,15 +122,11 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
     }
 
     fn init_effect(&mut self, _is_input: bool) -> Self::Effect {
-        KnownPointees::new(self.pointers.len())
+        PointeeEffectLattice::default()
     }
 
-    fn init_value(&mut self, is_input: bool) -> Self::Value {
-        if is_input {
-            KnownScalar::Top
-        } else {
-            KnownScalar::Bottom
-        }
+    fn init_value(&mut self, _is_input: bool) -> Self::Value {
+        OptimisticScalar::Unknown(None)
     }
 
     fn trans_effect_phi(
@@ -157,14 +152,14 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
         input_states: &[&Self::Value],
         output_state: &mut DataflowSlot<Self::Value>,
     ) {
-        let Some((&&first, remainder)) = input_states.split_first() else {
+        let Some((&first, remainder)) = input_states.split_first() else {
             return;
         };
 
-        let mut target = first;
+        let mut target = first.clone();
 
-        for &&other in remainder {
-            target |= other;
+        for &other in remainder {
+            target.join(other);
         }
 
         output_state.set_value(target);
@@ -186,7 +181,7 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
             println!("{}", operation.get_value(ctx).disp(ctx));
 
             output_effect.set_value_ref(input_effect);
-            output_state.unwrap().set_value(KnownScalar::Exactly(0)); // TODO: operation.get_value(ctx)
+            output_state.unwrap().set_value(OptimisticScalar::Known(0)); // TODO: operation.get_value(ctx)
 
             return;
         }
@@ -195,7 +190,7 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
         if let Some(operation) = Operation::get_op::<StoreOp>(operation, ctx) {
             let ptr = self.pointers[&operation.get_operand_address(ctx)];
             let mut new_output_effect = input_effect.clone();
-            new_output_effect.write(ptr, *input_states[1]);
+            new_output_effect.write(ptr, input_states[1]);
             output_effect.set_value(new_output_effect);
 
             assert!(output_state.is_none());
@@ -214,7 +209,7 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
 
         // Fallback
         if let Some(output_state) = output_state {
-            output_state.set_value(KnownScalar::Top);
+            output_state.set_value(OptimisticScalar::Unknown(None));
         }
 
         let mut new_output_effect = input_effect.clone();
@@ -247,48 +242,68 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
 
 // === Lattices === //
 
-define_index_type! {
-    pub struct PtrIdx = u32;
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
+pub struct PtrIdx(pub u32);
+
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
+pub struct PointeeEffectLattice {
+    pub no_alias: NoAliasSet,
+    pub known_pointees: KnownPointeeMap,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct KnownPointees {
-    no_alias: NoAliasSet,
-    pointees: IndexVec<PtrIdx, KnownScalar>,
-}
-
-impl KnownPointees {
-    pub fn new(index_count: usize) -> Self {
-        Self {
-            no_alias: NoAliasSet::default(),
-            pointees: IndexVec::from_iter((0..index_count).map(|_| KnownScalar::Bottom)),
+impl PointeeEffectLattice {
+    pub fn read(&self, ptr: PtrIdx) -> OptimisticScalar {
+        match self.known_pointees.raw.get(&ptr) {
+            Some(&value) => OptimisticScalar::Known(value),
+            None => OptimisticScalar::Unknown(Some(LoadHypothesis {
+                read_src: ptr,
+                branches: self.known_pointees.clone(),
+            })),
         }
     }
 
-    pub fn read(&self, ptr: PtrIdx) -> KnownScalar {
-        self.pointees[ptr]
-    }
+    pub fn write(&mut self, ptr: PtrIdx, value: &OptimisticScalar) {
+        let value = match value {
+            OptimisticScalar::Known(value) => Some(*value),
+            OptimisticScalar::Unknown(_) => None,
+        };
 
-    pub fn write(&mut self, ptr: PtrIdx, value: KnownScalar) {
-        for (other, scalar) in self.pointees.iter_mut_enumerated() {
-            if !self.no_alias.has(ptr, other) {
-                *scalar = *scalar | value;
+        Rc::make_mut(&mut self.known_pointees.raw).retain(|&other_ptr, &mut other_value| {
+            if self.no_alias.has(ptr, other_ptr) {
+                return true;
             }
-        }
+
+            Some(other_value) == value
+        });
     }
 
     pub fn arbitrary_write(&mut self) {
-        for ptr in &mut self.pointees {
-            *ptr = KnownScalar::Top;
-        }
+        self.known_pointees.clear();
     }
 
     pub fn join(&mut self, other: &Self) {
         self.no_alias.join(&other.no_alias);
+        self.known_pointees.join(&other.known_pointees);
+    }
+}
 
-        for (lhs, rhs) in self.pointees.iter_mut().zip(&other.pointees) {
-            *lhs |= *rhs;
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
+pub struct KnownPointeeMap {
+    pub raw: Rc<FxHashMap<PtrIdx, u64>>,
+}
+
+impl KnownPointeeMap {
+    pub fn clear(&mut self) {
+        if let Some(map) = Rc::get_mut(&mut self.raw) {
+            map.clear();
+        } else {
+            self.raw = Rc::new(FxHashMap::default());
         }
+    }
+
+    pub fn join(&mut self, other: &Self) {
+        Rc::make_mut(&mut self.raw)
+            .retain(|key, value| other.raw.get(key).is_none_or(|other| value == other));
     }
 }
 
@@ -315,36 +330,24 @@ impl NoAliasSet {
     }
 }
 
-#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
-pub enum KnownScalar {
-    Bottom,
-    Exactly(u64),
-    Top,
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum OptimisticScalar {
+    Known(u64),
+    Unknown(Option<LoadHypothesis>),
 }
 
-impl BitOrAssign for KnownScalar {
-    fn bitor_assign(&mut self, rhs: Self) {
-        *self = *self | rhs;
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct LoadHypothesis {
+    pub read_src: PtrIdx,
+    pub branches: KnownPointeeMap,
+}
+
+impl OptimisticScalar {
+    pub fn map(&mut self, mut f: impl FnMut(u64) -> u64) {
+        todo!()
     }
-}
 
-impl BitOr for KnownScalar {
-    type Output = Self;
-
-    fn bitor(self, rhs: Self) -> Self::Output {
-        use KnownScalar::*;
-
-        match (self, rhs) {
-            (Bottom, Bottom) => Bottom,
-            (Bottom, Exactly(value)) | (Exactly(value), Bottom) => Exactly(value),
-            (Exactly(lhs), Exactly(rhs)) => {
-                if lhs == rhs {
-                    Exactly(lhs)
-                } else {
-                    Top
-                }
-            }
-            (Top, _) | (_, Top) => Top,
-        }
+    pub fn join(&mut self, other: &OptimisticScalar) {
+        todo!()
     }
 }
