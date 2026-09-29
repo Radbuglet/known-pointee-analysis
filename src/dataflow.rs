@@ -3,7 +3,6 @@
 
 use std::{collections::VecDeque, marker::PhantomData, mem, slice};
 
-use derive_where::derive_where;
 use index_vec::{IndexVec, define_index_type};
 use pliron::{
     basic_block::BasicBlock,
@@ -470,13 +469,26 @@ impl Analysis for DataflowGraph {
 
 // === DataflowAnalysis === //
 
-#[derive_where(Default)]
 pub struct DataflowScratch<E, S> {
     work_list: VecDeque<DataflowSlotIdx>,
     effects: IndexVec<DataflowEffectIdx, DataflowSlot<E>>,
     states: IndexVec<DataflowStateIdx, DataflowSlot<S>>,
-    vec_of_ptrs: VecOfPtrScratch,
+    vec_of_ptrs_1: VecOfPtrScratch,
+    vec_of_ptrs_2: VecOfPtrScratch,
     borrow_states: DisjointBorrowsScratch,
+}
+
+impl<E, S> Default for DataflowScratch<E, S> {
+    fn default() -> Self {
+        Self {
+            work_list: VecDeque::default(),
+            effects: IndexVec::default(),
+            states: IndexVec::default(),
+            vec_of_ptrs_1: VecOfPtrScratch::default(),
+            vec_of_ptrs_2: VecOfPtrScratch::default(),
+            borrow_states: DisjointBorrowsScratch::default(),
+        }
+    }
 }
 
 impl<E, S> DataflowScratch<E, S> {
@@ -505,6 +517,23 @@ impl<E, S> DataflowScratch<E, S> {
                 }
             }
         }
+    }
+
+    fn process_user_mark(&mut self, target: DataflowSlotIdx) {
+        match target {
+            DataflowSlotIdx::Effect(idx) => {
+                if !mem::take(&mut self.effects[idx].user_marked_dirty) {
+                    return;
+                }
+            }
+            DataflowSlotIdx::State(idx) => {
+                if !mem::take(&mut self.states[idx].user_marked_dirty) {
+                    return;
+                }
+            }
+        }
+
+        self.mark_dirty(target);
     }
 }
 
@@ -620,24 +649,104 @@ pub trait DataflowAnalysis<'c>: Sized {
                     DataflowGraphNode::Phi(DataflowGraphNodePhi {
                         basic_block: _,
                         basic_block_arg: _,
-                        input_states,
-                        output_state,
+                        input_states: input_states_indices,
+                        output_state: output_state_idx,
                     }) => {
-                        todo!()
+                        let mut state_borrows = scratch
+                            .borrow_states
+                            .builder(scratch.states.as_raw_slice_mut());
+
+                        let input_states = scratch.vec_of_ptrs_1.build(
+                            input_states_indices
+                                .iter()
+                                .map(|idx| &state_borrows.get(idx.index()).lattice),
+                        );
+                        let output_state = state_borrows.get(output_state_idx.index());
+
+                        self.trans_phi(input_states, output_state);
+
+                        scratch.process_user_mark((*output_state_idx).into());
                     }
                     DataflowGraphNode::Stmt(DataflowGraphNodeStmt {
                         operation,
-                        input_effect,
-                        output_effect,
-                        input_states,
-                        output_state,
-                    }) => todo!(),
+                        input_effect: input_effect_idx,
+                        output_effect: output_effect_idx,
+                        input_states: input_state_indices,
+                        output_state: output_state_index,
+                    }) => {
+                        let [
+                            &mut DataflowSlot {
+                                lattice: ref input_effect,
+                                ..
+                            },
+                            output_effect,
+                        ] = scratch
+                            .effects
+                            .as_raw_slice_mut()
+                            .get_disjoint_mut([input_effect_idx.index(), output_effect_idx.index()])
+                            .unwrap();
+
+                        let mut state_borrows = scratch
+                            .borrow_states
+                            .builder(scratch.states.as_raw_slice_mut());
+
+                        let input_states = scratch.vec_of_ptrs_1.build(
+                            input_state_indices
+                                .iter()
+                                .map(|idx| &state_borrows.get(idx.index()).lattice),
+                        );
+
+                        let output_state =
+                            output_state_index.map(|idx| state_borrows.get(idx.index()));
+
+                        self.trans_stmt(
+                            *operation,
+                            input_effect,
+                            output_effect,
+                            input_states,
+                            output_state,
+                        );
+
+                        scratch.process_user_mark((*output_effect_idx).into());
+
+                        if let Some(output_state_index) = output_state_index {
+                            scratch.process_user_mark((*output_state_index).into());
+                        }
+                    }
                     DataflowGraphNode::Terminator(DataflowGraphNodeTerminator {
                         operation,
-                        input_effect,
-                        input_states,
-                        output_effects,
-                    }) => todo!(),
+                        input_effect: input_effect_index,
+                        input_states: input_state_indices,
+                        output_effects: output_effect_indices,
+                    }) => {
+                        let mut effect_borrows = scratch
+                            .borrow_states
+                            .builder(scratch.effects.as_raw_slice_mut());
+
+                        let input_effect = &effect_borrows.get(input_effect_index.index()).lattice;
+                        let input_states = scratch.vec_of_ptrs_1.build(
+                            input_state_indices
+                                .iter()
+                                .map(|&idx| &scratch.states[idx].lattice),
+                        );
+
+                        let output_effects = scratch.vec_of_ptrs_2.build(
+                            output_effect_indices
+                                .iter()
+                                .map(|idx| effect_borrows.get(idx.index())),
+                        );
+
+                        self.trans_terminator(
+                            *operation,
+                            input_effect,
+                            input_states,
+                            output_effects,
+                        );
+
+                        for &index in output_effect_indices {
+                            scratch.process_user_mark(index.into());
+                        }
+                    }
                 }
             }
         }
@@ -656,7 +765,16 @@ unsafe impl Sync for VecOfPtrScratch {}
 
 impl VecOfPtrScratch {
     pub fn builder<'i, T: SizedPointer>(&'i mut self) -> VecOfPtrScratchBuilder<'i, T> {
-        todo!()
+        VecOfPtrScratchBuilder {
+            _ty: PhantomData,
+            buffer: &mut self.buffer,
+        }
+    }
+
+    pub fn build<T: SizedPointer>(&mut self, iter: impl IntoIterator<Item = T>) -> &mut [T] {
+        let mut builder = self.builder();
+        builder.extend(iter);
+        builder.finish()
     }
 }
 
@@ -666,10 +784,6 @@ struct VecOfPtrScratchBuilder<'a, T: SizedPointer> {
 }
 
 impl<'a, T: SizedPointer> VecOfPtrScratchBuilder<'a, T> {
-    fn push(&mut self, elem: T) {
-        self.buffer.push(elem.as_ptr());
-    }
-
     fn finish(self) -> &'a mut [T] {
         let buffer = self.buffer.as_mut_slice() as *mut [*mut ()];
 
@@ -730,7 +844,7 @@ struct DisjointBorrowsBuilder<'s, 'a, T> {
 }
 
 impl<'s, 'a, T> DisjointBorrowsBuilder<'s, 'a, T> {
-    fn acquire(&mut self, index: usize) -> &'a mut T {
+    fn get(&mut self, index: usize) -> &'a mut T {
         assert!(index < self.target.len());
         assert!(
             !mem::replace(&mut self.scratch.states[index], true),

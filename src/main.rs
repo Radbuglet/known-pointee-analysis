@@ -13,8 +13,8 @@ use pliron_llvm::{
 
 use crate::analysis::PointeeConstantsFacts;
 
-mod analysis;
-mod dataflow;
+pub mod analysis;
+pub mod dataflow;
 
 fn main() -> anyhow::Result<()> {
     // Parse arguments
