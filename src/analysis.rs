@@ -9,11 +9,9 @@ use pliron::{
         types::IntegerType,
     },
     context::{Context, Ptr},
-    graph::walkers::{self, WalkConfig},
     operation::Operation,
     pass::{Analysis, AnalysisManager},
     result::Error as PlironError,
-    r#type::Typed,
     value::Value,
 };
 use pliron_llvm::{
@@ -22,7 +20,6 @@ use pliron_llvm::{
         AtomicCmpxchgOp, AtomicLoadOp, AtomicRmwOp, AtomicStoreOp, BrOp, CallIntrinsicOp, CallOp,
         CondBrOp, ConstantOp, FenceOp, FuncOp, ICmpOp, InlineAsmOp, LoadOp, StoreOp, TruncOp,
     },
-    types::PointerType,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -54,14 +51,7 @@ impl Analysis for PointeeConstantsFacts {
 
         let graph = analyses.get_analysis::<DataflowGraph>(raw_op, ctx).unwrap();
 
-        let mut analysis = MeowAnalysis {
-            ctx,
-            graph: &graph,
-            pointers: FxHashMap::default(),
-        };
-
-        analysis.discover_ptrs_in_op(raw_op);
-
+        let mut analysis = MeowAnalysis { ctx, graph: &graph };
         let mut scratch = DataflowScratch::default();
 
         analysis.run(&mut scratch);
@@ -77,49 +67,6 @@ impl Analysis for PointeeConstantsFacts {
 pub struct MeowAnalysis<'a> {
     ctx: &'a Context,
     graph: &'a DataflowGraph,
-    pointers: FxHashMap<Value, PtrIdx>,
-}
-
-impl MeowAnalysis<'_> {
-    pub fn discover_ptrs_in_op(&mut self, op: Ptr<Operation>) {
-        let ctx = self.ctx();
-
-        walkers::uninterruptible::immutable::walk_op(
-            ctx,
-            self,
-            &WalkConfig::default(),
-            op,
-            |ctx, analysis, node| match node {
-                walkers::IRNode::Operation(node) => {
-                    for value in node.deref(ctx).results() {
-                        analysis.visit_value_for_ptrs(value);
-                    }
-                }
-                walkers::IRNode::BasicBlock(node) => {
-                    for value in node.deref(ctx).arguments() {
-                        analysis.visit_value_for_ptrs(value);
-                    }
-                }
-                walkers::IRNode::Region(_) => {
-                    // (ignored)
-                }
-            },
-        );
-    }
-
-    fn visit_value_for_ptrs(&mut self, value: Value) {
-        let ctx = self.ctx();
-
-        if value
-            .get_type(ctx)
-            .deref(ctx)
-            .downcast_ref::<PointerType>()
-            .is_some()
-        {
-            let next_idx = PtrIdx(self.pointers.len() as u32);
-            self.pointers.entry(value).or_insert(next_idx);
-        }
-    }
 }
 
 impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
@@ -252,7 +199,7 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
 
         // Store
         if let Some(operation) = Operation::get_op::<StoreOp>(operation, ctx) {
-            let ptr = self.pointers[&operation.get_operand_address(ctx)];
+            let ptr = PtrIdx::from_value(operation.get_operand_address(ctx));
             let mut new_output_effect = input_effect.clone();
             new_output_effect.write(ptr, input_states[0]);
             output_effect.set_value(new_output_effect);
@@ -264,7 +211,7 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
 
         // Load
         if let Some(operation) = Operation::get_op::<LoadOp>(operation, ctx) {
-            let ptr = self.pointers[&operation.get_operand_address(ctx)];
+            let ptr = PtrIdx::from_value(operation.get_operand_address(ctx));
             output_effect.set_value_ref(input_effect);
             output_state.unwrap().set_value(input_effect.read(ptr));
 
@@ -285,7 +232,7 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
         }
 
         if let Some(operation) = Operation::get_op::<AtomicStoreOp>(operation, ctx) {
-            let ptr = self.pointers[&operation.get_operand_ptr(ctx)];
+            let ptr = PtrIdx::from_value(operation.get_operand_ptr(ctx));
             let mut new_output_effect = input_effect.clone();
             new_output_effect.write(ptr, input_states[0]);
             output_effect.set_value(new_output_effect);
@@ -397,8 +344,20 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
 
 // === Lattices === //
 
-#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
-pub struct PtrIdx(pub u32);
+#[derive(Copy, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
+pub struct PtrIdx(pub u64);
+
+impl fmt::Debug for PtrIdx {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "v{}", self.0)
+    }
+}
+
+impl PtrIdx {
+    pub fn from_value(value: Value) -> Self {
+        Self(value.val_uid())
+    }
+}
 
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub struct PointeeEffectLattice {
@@ -501,7 +460,7 @@ impl KnownPointeeMap {
 
     pub fn join(&mut self, other: &Self) {
         Rc::make_mut(&mut self.raw)
-            .retain(|key, value| other.raw.get(key).is_none_or(|other| value == other));
+            .retain(|key, value| other.raw.get(key).is_some_and(|other| value == other));
     }
 
     pub fn map(&mut self, mut f: impl FnMut(u64) -> u64) {
