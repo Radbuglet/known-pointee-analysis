@@ -135,7 +135,7 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
     }
 
     fn init_value(&mut self, _is_input: bool) -> Self::Value {
-        OptimisticScalar::default()
+        OptimisticScalar::Unknown
     }
 
     fn trans_effect_phi(
@@ -219,18 +219,18 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
                 (OptimisticScalar::Known(lhs), OptimisticScalar::Known(rhs)) => {
                     OptimisticScalar::Known(if lhs == rhs { 1 } else { 0 })
                 }
-                (OptimisticScalar::Known(known), OptimisticScalar::Unknown(Some(unknown)))
-                | (OptimisticScalar::Unknown(Some(unknown)), OptimisticScalar::Known(known)) => {
+                (OptimisticScalar::Known(known), OptimisticScalar::LoadKnown(unknown))
+                | (OptimisticScalar::LoadKnown(unknown), OptimisticScalar::Known(known)) => {
                     let mut branches = unknown.branches.clone();
 
                     branches.map(|potential| if potential == *known { 1 } else { 0 });
 
-                    OptimisticScalar::Unknown(Some(LoadHypothesis {
+                    OptimisticScalar::LoadKnown(LoadHypothesis {
                         read_src: unknown.read_src,
                         branches,
-                    }))
+                    })
                 }
-                _ => OptimisticScalar::Unknown(None),
+                _ => OptimisticScalar::Unknown,
             });
 
             return;
@@ -259,7 +259,7 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
 
         // Fallback
         if let Some(output_state) = output_state {
-            output_state.set_value(OptimisticScalar::default());
+            output_state.set_value(OptimisticScalar::Unknown);
         }
 
         let mut new_output_effect = input_effect.clone();
@@ -292,7 +292,7 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
             };
 
             match cond {
-                OptimisticScalar::Unknown(Some(hypothesis)) => {
+                OptimisticScalar::LoadKnown(hypothesis) => {
                     for (output, taken_if) in [(truthy, 1), (falsy, 0)] {
                         let mut new_output = input_effect.clone();
 
@@ -320,7 +320,7 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
                         output.set_value(new_output);
                     }
                 }
-                OptimisticScalar::Unknown(None) => {
+                OptimisticScalar::Unknown => {
                     for output_effect in output_effects {
                         output_effect.set_value_ref(input_effect);
                     }
@@ -365,17 +365,17 @@ impl PointeeEffectLattice {
     pub fn read(&self, ptr: PtrIdx) -> OptimisticScalar {
         match self.known_pointees.raw.get(&ptr) {
             Some(&value) => OptimisticScalar::Known(value),
-            None => OptimisticScalar::Unknown(Some(LoadHypothesis {
+            None => OptimisticScalar::LoadKnown(LoadHypothesis {
                 read_src: ptr,
                 branches: self.known_pointees.clone(),
-            })),
+            }),
         }
     }
 
     pub fn write(&mut self, ptr: PtrIdx, value: &OptimisticScalar) {
         let value = match value {
             OptimisticScalar::Known(value) => Some(*value),
-            OptimisticScalar::Unknown(_) => None,
+            OptimisticScalar::Unknown | OptimisticScalar::LoadKnown(_) => None,
         };
 
         let map = Rc::make_mut(&mut self.known_pointees.raw);
@@ -502,7 +502,8 @@ impl KnownPointeeMap {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum OptimisticScalar {
     Known(u64),
-    Unknown(Option<LoadHypothesis>),
+    LoadKnown(LoadHypothesis),
+    Unknown,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -511,22 +512,16 @@ pub struct LoadHypothesis {
     pub branches: KnownPointeeMap,
 }
 
-impl Default for OptimisticScalar {
-    fn default() -> Self {
-        Self::Unknown(None)
-    }
-}
-
 impl OptimisticScalar {
     pub fn map(&mut self, mut f: impl FnMut(u64) -> u64) {
         match self {
             OptimisticScalar::Known(value) => {
                 *value = f(*value);
             }
-            OptimisticScalar::Unknown(Some(load_hypothesis)) => {
+            OptimisticScalar::LoadKnown(load_hypothesis) => {
                 load_hypothesis.branches.map(f);
             }
-            OptimisticScalar::Unknown(None) => {
+            OptimisticScalar::Unknown => {
                 // (nothing to update)
             }
         }
@@ -537,13 +532,13 @@ impl OptimisticScalar {
             (OptimisticScalar::Known(lhs), OptimisticScalar::Known(rhs)) if lhs == rhs => {
                 // (no-op)
             }
-            (OptimisticScalar::Unknown(Some(lhs)), OptimisticScalar::Unknown(Some(rhs)))
+            (OptimisticScalar::LoadKnown(lhs), OptimisticScalar::LoadKnown(rhs))
                 if lhs.read_src == rhs.read_src =>
             {
                 lhs.branches.join(&rhs.branches);
             }
             _ => {
-                *self = OptimisticScalar::default();
+                *self = OptimisticScalar::Unknown;
             }
         }
     }
