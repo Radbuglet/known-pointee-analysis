@@ -465,7 +465,7 @@ impl KnownPointeeMap {
 
     pub fn join(&mut self, other: &Self) {
         Rc::make_mut(&mut self.raw)
-            .retain(|key, value| other.raw.get(key).is_none_or(|other| value == other));
+            .retain(|key, value| other.raw.get(key).is_some_and(|other| value == other));
     }
 
     pub fn map(&mut self, mut f: impl FnMut(u64) -> u64) {
