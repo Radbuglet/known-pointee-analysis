@@ -143,17 +143,7 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
         input_values: &[&Self::Effect],
         output_value: &mut DataflowSlot<Self::Effect>,
     ) {
-        let Some((&first, remainder)) = input_values.split_first() else {
-            return;
-        };
-
-        let mut target = first.clone();
-
-        for &other in remainder {
-            target.join(other);
-        }
-
-        output_value.set_value(target);
+        output_value.set_value(PointeeEffectLattice::join_phi(input_values));
     }
 
     fn trans_value_phi(
@@ -411,6 +401,40 @@ impl PointeeEffectLattice {
         self.is_dead &= other.is_dead;
         self.no_alias.join(&other.no_alias);
         self.known_pointees.join(&other.known_pointees);
+    }
+
+    pub fn join_phi(mut input_values: &[&PointeeEffectLattice]) -> Self {
+        if input_values.is_empty() {
+            // Empty phi nodes output default effects.
+            return PointeeEffectLattice::default();
+        }
+
+        // Split out the first live input.
+        let (first, remainder) = loop {
+            let Some((first, remainder)) = input_values.split_first() else {
+                return PointeeEffectLattice {
+                    is_dead: true,
+                    ..Default::default()
+                };
+            };
+
+            if !first.is_dead {
+                break (first, remainder);
+            }
+
+            input_values = remainder;
+        };
+
+        // Join all remaining live inputs.
+        let mut target = (*first).clone();
+
+        for &other in remainder {
+            if !other.is_dead {
+                target.join(other);
+            }
+        }
+
+        target
     }
 }
 
