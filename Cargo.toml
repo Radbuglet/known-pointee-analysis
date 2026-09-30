@@ -11,3 +11,7 @@ pliron = "0.18.0"
 pliron-llvm = "0.18.0"
 rustc-hash = "2.1.3"
 smallvec = "1.16.1"
+
+[patch.crates-io]
+pliron = { path = "../pliron" }
+pliron-llvm = { path = "../pliron/pliron-llvm" }

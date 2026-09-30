@@ -7,6 +7,6 @@ BREW_PREFIX="$(brew --prefix)"
 export PATH="$BREW_PREFIX/opt/llvm/bin:$PATH"
 
 pushd res/
-clang-23 -O3 -c -emit-llvm -o input.ll input.cpp
+clang-23 -O3 -fno-vectorize -c -emit-llvm -o input.ll sqlite3.c
 cargo run -- input.ll > output.txt
 popd > /dev/null

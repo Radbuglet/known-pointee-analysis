@@ -17,7 +17,11 @@ use pliron::{
     value::Value,
 };
 use pliron_llvm::{
-    ops::{BrOp, CondBrOp, ConstantOp, FuncOp, ICmpOp, LoadOp, StoreOp, TruncOp},
+    attributes::AtomicOrderingAttr,
+    ops::{
+        AtomicCmpxchgOp, AtomicLoadOp, AtomicRmwOp, AtomicStoreOp, BrOp, CallIntrinsicOp, CallOp,
+        CondBrOp, ConstantOp, FenceOp, FuncOp, ICmpOp, InlineAsmOp, LoadOp, StoreOp, TruncOp,
+    },
     types::PointerType,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -267,14 +271,49 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
             return;
         }
 
+        // Atomics
+        if let Some(operation) = Operation::get_op::<AtomicLoadOp>(operation, ctx)
+            && operation
+                .get_attr_llvm_ld_ordering(ctx)
+                .is_none_or(|v| *v != AtomicOrderingAttr::Monotonic)
+        {
+            let mut new_output_effect = input_effect.clone();
+            new_output_effect.arbitrary_write();
+            output_effect.set_value(new_output_effect);
+
+            return;
+        }
+
+        if let Some(operation) = Operation::get_op::<AtomicStoreOp>(operation, ctx) {
+            let ptr = self.pointers[&operation.get_operand_ptr(ctx)];
+            let mut new_output_effect = input_effect.clone();
+            new_output_effect.write(ptr, input_states[0]);
+            output_effect.set_value(new_output_effect);
+
+            return;
+        }
+
+        if Operation::get_op::<AtomicRmwOp>(operation, ctx).is_some()
+            || Operation::get_op::<AtomicCmpxchgOp>(operation, ctx).is_some()
+            || Operation::get_op::<FenceOp>(operation, ctx).is_some()
+            || Operation::get_op::<InlineAsmOp>(operation, ctx).is_some()
+            || Operation::get_op::<InlineAsmOp>(operation, ctx).is_some()
+            || Operation::get_op::<CallOp>(operation, ctx).is_some()
+            || Operation::get_op::<CallIntrinsicOp>(operation, ctx).is_some()
+        {
+            let mut new_output_effect = input_effect.clone();
+            new_output_effect.arbitrary_write();
+            output_effect.set_value(new_output_effect);
+
+            return;
+        }
+
         // Fallback
         if let Some(output_state) = output_state {
             output_state.set_value(OptimisticScalar::default());
         }
 
-        let mut new_output_effect = input_effect.clone();
-        new_output_effect.arbitrary_write();
-        output_effect.set_value(new_output_effect);
+        output_effect.set_value_ref(input_effect);
     }
 
     fn trans_terminator(
@@ -350,11 +389,8 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
         }
 
         // Fallback
-        let mut new_output_effect = input_effect.clone();
-        new_output_effect.arbitrary_write();
-
         for output_effect in output_effects {
-            output_effect.set_value_ref(&new_output_effect);
+            output_effect.set_value_ref(&input_effect);
         }
     }
 }
