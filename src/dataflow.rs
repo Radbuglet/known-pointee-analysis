@@ -447,6 +447,20 @@ impl DataflowGraph {
             }
         }
 
+        for node in &mut graph.node_defs {
+            if let Some(phi) = node.as_effect_phi_mut() {
+                phi.input_effects.sort();
+                phi.input_effects.dedup();
+                phi.input_effects.retain(|&mut v| v != phi.output_effect);
+            }
+
+            if let Some(phi) = node.as_value_phi_mut() {
+                phi.input_values.sort();
+                phi.input_values.dedup();
+                phi.input_values.retain(|&mut v| v != phi.output_value);
+            }
+        }
+
         graph
     }
 
@@ -683,7 +697,7 @@ pub trait DataflowAnalysis<'c>: Sized {
                                 .iter()
                                 .map(|idx| &effect_borrows.get(idx.index()).lattice),
                         );
-                        let output_effect = effect_borrows.get(output_effect_idx.index());
+                        let output_effect = effect_borrows.get_mut(output_effect_idx.index());
 
                         self.trans_effect_phi(input_effects, output_effect);
 
@@ -703,7 +717,7 @@ pub trait DataflowAnalysis<'c>: Sized {
                                 .iter()
                                 .map(|idx| &value_borrows.get(idx.index()).lattice),
                         );
-                        let output_value = value_borrows.get(output_value_idx.index());
+                        let output_value = value_borrows.get_mut(output_value_idx.index());
 
                         self.trans_value_phi(input_values, output_value);
 
@@ -738,7 +752,7 @@ pub trait DataflowAnalysis<'c>: Sized {
                         );
 
                         let output_value =
-                            output_value_index.map(|idx| value_borrows.get(idx.index()));
+                            output_value_index.map(|idx| value_borrows.get_mut(idx.index()));
 
                         self.trans_stmt(
                             *operation,
@@ -773,7 +787,7 @@ pub trait DataflowAnalysis<'c>: Sized {
                         let output_effects = scratch.vec_of_ptrs_2.build(
                             output_effect_indices
                                 .iter()
-                                .map(|idx| effect_borrows.get(idx.index())),
+                                .map(|idx| effect_borrows.get_mut(idx.index())),
                         );
 
                         self.trans_terminator(
@@ -1037,18 +1051,25 @@ unsafe impl<'a, T> SizedPointer for &'a mut T {
 
 #[derive(Default)]
 struct DisjointBorrowsScratch {
-    borrowed_cells: Vec<bool>,
+    borrowed_cells: Vec<BorrowState>,
     undo_set: Vec<usize>,
+}
+
+#[derive(Copy, Clone)]
+enum BorrowState {
+    None,
+    Mut,
+    Ref,
 }
 
 impl DisjointBorrowsScratch {
     fn builder<'s, 'a, T>(&'s mut self, target: &'a mut [T]) -> DisjointBorrowsBuilder<'s, 'a, T> {
         for idx in self.undo_set.drain(..) {
-            self.borrowed_cells[idx] = false;
+            self.borrowed_cells[idx] = BorrowState::None;
         }
 
         if self.borrowed_cells.len() < target.len() {
-            self.borrowed_cells.resize(target.len(), false);
+            self.borrowed_cells.resize(target.len(), BorrowState::None);
         }
 
         DisjointBorrowsBuilder {
@@ -1066,12 +1087,38 @@ struct DisjointBorrowsBuilder<'s, 'a, T> {
 }
 
 impl<'s, 'a, T> DisjointBorrowsBuilder<'s, 'a, T> {
-    fn get(&mut self, index: usize) -> &'a mut T {
+    fn get(&mut self, index: usize) -> &'a T {
         assert!(index < self.target.len());
-        assert!(
-            !mem::replace(&mut self.scratch.borrowed_cells[index], true),
-            "cannot borrow the same index more than once"
-        );
+
+        let state = &mut self.scratch.borrowed_cells[index];
+
+        match state {
+            BorrowState::None | BorrowState::Ref => {
+                *state = BorrowState::Ref;
+            }
+            BorrowState::Mut => {
+                panic!("invalid immutable borrow");
+            }
+        }
+
+        self.scratch.undo_set.push(index);
+
+        unsafe { &mut *self.target.cast::<T>().add(index) }
+    }
+
+    fn get_mut(&mut self, index: usize) -> &'a mut T {
+        assert!(index < self.target.len());
+
+        let state = &mut self.scratch.borrowed_cells[index];
+
+        match state {
+            BorrowState::None => {
+                *state = BorrowState::Mut;
+            }
+            BorrowState::Mut | BorrowState::Ref => {
+                panic!("invalid mutable borrow");
+            }
+        }
 
         self.scratch.undo_set.push(index);
 
