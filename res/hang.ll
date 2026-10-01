@@ -14,6 +14,8 @@ B:
   %v2 = load i32, ptr %p, align 4
   br label %J
 J:
+  ; Hangs because learning that `B` resolves to a constant when `{p: 1}` as an input causes `x` to
+  ; become `Unknown` instead of `LoadKnown(q, {p: 1})`, breaking monotonicity.
   %x = phi i32 [ %v1, %A ], [ %v2, %B ]
   %cmp = icmp eq i32 %x, 2
   br i1 %cmp, label %T, label %F
