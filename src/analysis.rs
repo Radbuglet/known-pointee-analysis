@@ -1,5 +1,4 @@
-use core::fmt;
-use std::rc::Rc;
+use std::{fmt, rc::Rc};
 
 use pliron::{
     attribute::Attribute,
@@ -17,6 +16,8 @@ use pliron::{
     value::Value,
 };
 use pliron_llvm::{
+    attributes::ICmpPredicateAttr,
+    op_interfaces::VolatilityOpInterface,
     ops::{BrOp, CondBrOp, ConstantOp, FuncOp, ICmpOp, LoadOp, StoreOp, TruncOp},
     types::PointerType,
 };
@@ -208,7 +209,9 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
         }
 
         // ICmp
-        if let Some(_operation) = Operation::get_op::<ICmpOp>(operation, ctx) {
+        if let Some(operation) = Operation::get_op::<ICmpOp>(operation, ctx)
+            && operation.predicate(ctx) == ICmpPredicateAttr::EQ
+        {
             output_effect.set_value_ref(input_effect);
 
             let [lhs, rhs] = input_states else {
@@ -237,7 +240,9 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
         }
 
         // Store
-        if let Some(operation) = Operation::get_op::<StoreOp>(operation, ctx) {
+        if let Some(operation) = Operation::get_op::<StoreOp>(operation, ctx)
+            && !operation.is_volatile(ctx)
+        {
             let ptr = self.pointers[&operation.get_operand_address(ctx)];
             let mut new_output_effect = input_effect.clone();
             new_output_effect.write(ptr, input_states[0]);
@@ -249,7 +254,9 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
         }
 
         // Load
-        if let Some(operation) = Operation::get_op::<LoadOp>(operation, ctx) {
+        if let Some(operation) = Operation::get_op::<LoadOp>(operation, ctx)
+            && !operation.is_volatile(ctx)
+        {
             let ptr = self.pointers[&operation.get_operand_address(ctx)];
             output_effect.set_value_ref(input_effect);
             output_state.unwrap().set_value(input_effect.read(ptr));
