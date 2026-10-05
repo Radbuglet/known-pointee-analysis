@@ -1,134 +1,134 @@
 llvm.func @_Z4meowPjS_: llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variadic = false>
     ^entry_block2v1(v0: llvm.ptr (0), v1: llvm.ptr (0))
-    -> effects: PointeeEffectLattice { is_dead: false, no_alias: {}, known_pointees: {} }
+    -> effects: Alive { no_alias: {}, known_pointees: {} }
     -> v0: Unknown
     -> v1: Unknown
 
         v3 = llvm.constant <builtin.integer <1: i32>> : builtin.integer i32
-        -> result: Known(1)
-        -> effects: PointeeEffectLattice { is_dead: false, no_alias: {}, known_pointees: {} }
+        -> result: KnownConst(1)
+        -> effects: Alive { no_alias: {}, known_pointees: {} }
 
         v6 = llvm.constant <builtin.integer <2: i32>> : builtin.integer i32
-        -> result: Known(2)
-        -> effects: PointeeEffectLattice { is_dead: false, no_alias: {}, known_pointees: {} }
+        -> result: KnownConst(2)
+        -> effects: Alive { no_alias: {}, known_pointees: {} }
 
         v8 = llvm.constant <builtin.integer <3: i32>> : builtin.integer i32
-        -> result: Known(3)
-        -> effects: PointeeEffectLattice { is_dead: false, no_alias: {}, known_pointees: {} }
+        -> result: KnownConst(3)
+        -> effects: Alive { no_alias: {}, known_pointees: {} }
 
         v2 = llvm.load v0 [align : 4] : builtin.integer i32 !0
         -> result: LoadKnown(LoadHypothesis { read_src: PtrIdx(0), branches: {} })
-        -> effects: PointeeEffectLattice { is_dead: false, no_alias: {}, known_pointees: {} }
+        -> effects: Alive { no_alias: {}, known_pointees: {} }
 
         v4 = llvm.icmp v2 <EQ> v3 : builtin.integer i1
         -> result: LoadKnown(LoadHypothesis { read_src: PtrIdx(0), branches: {} })
-        -> effects: PointeeEffectLattice { is_dead: false, no_alias: {}, known_pointees: {} }
+        -> effects: Alive { no_alias: {}, known_pointees: {} }
 
         llvm.cond_br if v4 ^block4v1() else ^block3v1()
 
 
     ^block3v1()
-    -> effects: PointeeEffectLattice { is_dead: false, no_alias: {}, known_pointees: {} }
+    -> effects: Alive { no_alias: {}, known_pointees: {} }
 
         v5 = llvm.call @_Z5panicv () : llvm.func <llvm.void () variadic = false>
         -> result: Unknown
-        -> effects: PointeeEffectLattice { is_dead: false, no_alias: {}, known_pointees: {} }
+        -> effects: Alive { no_alias: {}, known_pointees: {} }
 
         llvm.unreachable 
 
 
     ^block4v1()
-    -> effects: PointeeEffectLattice { is_dead: false, no_alias: {}, known_pointees: {} }
+    -> effects: Alive { no_alias: {}, known_pointees: {} }
 
         llvm.store *v0 <- v6 [align : 4] !0
-        -> effects: PointeeEffectLattice { is_dead: false, no_alias: {}, known_pointees: {PtrIdx(0): 2} }
+        -> effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 2} }
 
         v7 = llvm.load v1 [align : 4] : builtin.integer i32 !0
         -> result: LoadKnown(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(0): 2} })
-        -> effects: PointeeEffectLattice { is_dead: false, no_alias: {}, known_pointees: {PtrIdx(0): 2} }
+        -> effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 2} }
 
         v9 = llvm.icmp v7 <EQ> v8 : builtin.integer i1
         -> result: LoadKnown(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(0): 0} })
-        -> effects: PointeeEffectLattice { is_dead: false, no_alias: {}, known_pointees: {PtrIdx(0): 2} }
+        -> effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 2} }
 
         llvm.cond_br if v9 ^block6v1() else ^block5v1()
 
 
     ^block5v1()
-    -> effects: PointeeEffectLattice { is_dead: false, no_alias: {}, known_pointees: {PtrIdx(0): 2} }
+    -> effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 2} }
 
         v10 = llvm.call @_Z5panicv () : llvm.func <llvm.void () variadic = false>
         -> result: Unknown
-        -> effects: PointeeEffectLattice { is_dead: false, no_alias: {}, known_pointees: {} }
+        -> effects: Alive { no_alias: {}, known_pointees: {} }
 
         llvm.unreachable 
 
 
     ^block6v1()
-    -> effects: PointeeEffectLattice { is_dead: false, no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 2} }
+    -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 2} }
 
         llvm.store *v0 <- v3 [align : 4] !0
-        -> effects: PointeeEffectLattice { is_dead: false, no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1} }
+        -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1} }
 
         llvm.store *v1 <- v8 [align : 4] !0
-        -> effects: PointeeEffectLattice { is_dead: false, no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
+        -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
 
         v11 = llvm.load v0 [align : 4] : builtin.integer i32 !0
-        -> result: Known(1)
-        -> effects: PointeeEffectLattice { is_dead: false, no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
+        -> result: KnownConst(1)
+        -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
 
         v12 = llvm.icmp v11 <EQ> v3 : builtin.integer i1
-        -> result: Known(1)
-        -> effects: PointeeEffectLattice { is_dead: false, no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
+        -> result: KnownConst(1)
+        -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
 
         llvm.cond_br if v12 ^block8v1() else ^block7v1()
 
 
     ^block7v1()
-    -> effects: PointeeEffectLattice { is_dead: true, no_alias: {}, known_pointees: {} }
+    -> effects: Dead
 
         v13 = llvm.call @_Z5panicv () : llvm.func <llvm.void () variadic = false>
-        -> result: Unknown
-        -> effects: PointeeEffectLattice { is_dead: true, no_alias: {}, known_pointees: {} }
+        -> result: Dead
+        -> effects: Dead
 
         llvm.unreachable 
 
 
     ^block8v1()
-    -> effects: PointeeEffectLattice { is_dead: false, no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
+    -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
 
         llvm.store *v0 <- v6 [align : 4] !0
-        -> effects: PointeeEffectLattice { is_dead: false, no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 2, PtrIdx(1): 3} }
+        -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 2, PtrIdx(1): 3} }
 
         v14 = llvm.load v1 [align : 4] : builtin.integer i32 !0
-        -> result: Known(3)
-        -> effects: PointeeEffectLattice { is_dead: false, no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 2, PtrIdx(1): 3} }
+        -> result: KnownConst(3)
+        -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 2, PtrIdx(1): 3} }
 
         v15 = llvm.icmp v14 <EQ> v8 : builtin.integer i1
-        -> result: Known(1)
-        -> effects: PointeeEffectLattice { is_dead: false, no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 2, PtrIdx(1): 3} }
+        -> result: KnownConst(1)
+        -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 2, PtrIdx(1): 3} }
 
         llvm.cond_br if v15 ^block10v1() else ^block9v1()
 
 
     ^block9v1()
-    -> effects: PointeeEffectLattice { is_dead: true, no_alias: {}, known_pointees: {} }
+    -> effects: Dead
 
         v16 = llvm.call @_Z5panicv () : llvm.func <llvm.void () variadic = false>
-        -> result: Unknown
-        -> effects: PointeeEffectLattice { is_dead: true, no_alias: {}, known_pointees: {} }
+        -> result: Dead
+        -> effects: Dead
 
         llvm.unreachable 
 
 
     ^block10v1()
-    -> effects: PointeeEffectLattice { is_dead: false, no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 2, PtrIdx(1): 3} }
+    -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 2, PtrIdx(1): 3} }
 
         llvm.store *v0 <- v3 [align : 4] !0
-        -> effects: PointeeEffectLattice { is_dead: false, no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
+        -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
 
         llvm.store *v1 <- v8 [align : 4] !0
-        -> effects: PointeeEffectLattice { is_dead: false, no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
+        -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
 
         llvm.return 
 

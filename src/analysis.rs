@@ -1,5 +1,3 @@
-use std::{fmt, rc::Rc};
-
 use pliron::{
     attribute::Attribute,
     builtin::{
@@ -21,14 +19,17 @@ use pliron_llvm::{
     ops::{BrOp, CondBrOp, ConstantOp, FuncOp, ICmpOp, LoadOp, StoreOp, TruncOp},
     types::PointerType,
 };
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 
-use crate::dataflow::{DataflowAnalysis, DataflowGraph, DataflowScratch, DataflowSlot};
+use crate::{
+    dataflow::{DataflowAnalysis, DataflowGraph, DataflowScratch, DataflowSlot},
+    lattice::{EffectLattice, PtrIdx, ValueLattice},
+};
 
 // === Driver === //
 
 pub struct PointeeConstantsFacts {
-    pub facts: Option<DataflowScratch<PointeeEffectLattice, OptimisticScalar>>,
+    pub facts: Option<DataflowScratch<EffectLattice, ValueLattice>>,
 }
 
 impl Analysis for PointeeConstantsFacts {
@@ -120,8 +121,8 @@ impl MeowAnalysis<'_> {
 }
 
 impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
-    type Effect = PointeeEffectLattice;
-    type Value = OptimisticScalar;
+    type Effect = EffectLattice;
+    type Value = ValueLattice;
 
     fn ctx(&self) -> &'a Context {
         self.ctx
@@ -132,11 +133,11 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
     }
 
     fn init_effect(&mut self, _is_input: bool) -> Self::Effect {
-        PointeeEffectLattice::default()
+        EffectLattice::default()
     }
 
     fn init_value(&mut self, _is_input: bool) -> Self::Value {
-        OptimisticScalar::Unknown
+        ValueLattice::default()
     }
 
     fn trans_effect_phi(
@@ -144,7 +145,17 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
         input_values: &[&Self::Effect],
         output_value: &mut DataflowSlot<Self::Effect>,
     ) {
-        output_value.set_value(PointeeEffectLattice::join_phi(input_values));
+        let Some((&first, remainder)) = input_values.split_first() else {
+            return;
+        };
+
+        let mut target = first.clone();
+
+        for &other in remainder {
+            target.join_monotonic(other);
+        }
+
+        output_value.set_value(target);
     }
 
     fn trans_value_phi(
@@ -159,7 +170,7 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
         let mut target = first.clone();
 
         for &other in remainder {
-            target.join(other);
+            target.join_monotonic(other);
         }
 
         output_state.set_value(target);
@@ -175,8 +186,12 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
     ) {
         let ctx = self.ctx();
 
-        if input_effect.is_dead {
-            output_effect.set_value_ref(input_effect);
+        if matches!(input_effect, EffectLattice::Dead) {
+            if let Some(output_state) = output_state {
+                output_state.set_value(ValueLattice::Dead);
+            }
+
+            output_effect.set_value(EffectLattice::Dead);
             return;
         }
 
@@ -189,7 +204,7 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
 
             output_state
                 .unwrap()
-                .set_value(OptimisticScalar::Known(constant.value().to_u64()));
+                .set_value(ValueLattice::KnownConst(constant.value().to_u64()));
 
             return;
         }
@@ -202,7 +217,7 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
             output_effect.set_value_ref(input_effect);
 
             let mut new_output_state = input_states[0].clone();
-            new_output_state.map(|value| value & ((1u64 << int_ty.width()) - 1));
+            new_output_state.map_monotonic(|value| value & ((1u64 << int_ty.width()) - 1));
             output_state.unwrap().set_value(new_output_state);
 
             return;
@@ -218,23 +233,11 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
                 unreachable!()
             };
 
-            output_state.unwrap().set_value(match (lhs, rhs) {
-                (OptimisticScalar::Known(lhs), OptimisticScalar::Known(rhs)) => {
-                    OptimisticScalar::Known(if lhs == rhs { 1 } else { 0 })
-                }
-                (OptimisticScalar::Known(known), OptimisticScalar::LoadKnown(unknown))
-                | (OptimisticScalar::LoadKnown(unknown), OptimisticScalar::Known(known)) => {
-                    let mut branches = unknown.branches.clone();
-
-                    branches.map(|potential| if potential == *known { 1 } else { 0 });
-
-                    OptimisticScalar::LoadKnown(LoadHypothesis {
-                        read_src: unknown.read_src,
-                        branches,
-                    })
-                }
-                _ => OptimisticScalar::Unknown,
-            });
+            output_state
+                .unwrap()
+                .set_value(ValueLattice::map_pair_monotonic(lhs, rhs, |lhs, rhs| {
+                    if lhs == rhs { 1 } else { 0 }
+                }));
 
             return;
         }
@@ -245,7 +248,7 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
         {
             let ptr = self.pointers[&operation.get_operand_address(ctx)];
             let mut new_output_effect = input_effect.clone();
-            new_output_effect.write(ptr, input_states[0]);
+            new_output_effect.write_monotonic(ptr, input_states[0]);
             output_effect.set_value(new_output_effect);
 
             assert!(output_state.is_none());
@@ -259,18 +262,20 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
         {
             let ptr = self.pointers[&operation.get_operand_address(ctx)];
             output_effect.set_value_ref(input_effect);
-            output_state.unwrap().set_value(input_effect.read(ptr));
+            output_state
+                .unwrap()
+                .set_value(input_effect.read_monotonic(ptr));
 
             return;
         }
 
         // Fallback
         if let Some(output_state) = output_state {
-            output_state.set_value(OptimisticScalar::Unknown);
+            output_state.set_value(ValueLattice::Unknown);
         }
 
         let mut new_output_effect = input_effect.clone();
-        new_output_effect.arbitrary_write();
+        new_output_effect.arbitrary_write_monotonic();
         output_effect.set_value(new_output_effect);
     }
 
@@ -283,7 +288,7 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
     ) {
         let ctx = self.ctx();
 
-        if input_effect.is_dead {
+        if matches!(input_effect, EffectLattice::Dead) {
             for output_effect in output_effects {
                 output_effect.set_value_ref(input_effect);
             }
@@ -298,8 +303,13 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
                 unreachable!()
             };
 
-            match cond {
-                OptimisticScalar::LoadKnown(hypothesis) => {
+            match cond.promote_load_non_monotonic() {
+                ValueLattice::Dead => {
+                    for output_effect in output_effects {
+                        output_effect.set_value(EffectLattice::Dead);
+                    }
+                }
+                ValueLattice::KnownLoad(hypothesis) => {
                     for (output, taken_if) in [(truthy, 1), (falsy, 0)] {
                         let mut new_output = input_effect.clone();
 
@@ -311,23 +321,33 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
                                 // aliased with `if_aliased_with`, we know that, for the branch to
                                 // be taken, `hypothesis.read_src` and `if_aliased_with` may not
                                 // alias.
-                                new_output
-                                    .no_alias
-                                    .add(hypothesis.read_src, if_aliased_with);
+                                let EffectLattice::Alive {
+                                    no_alias,
+                                    known_pointees: _,
+                                } = &mut new_output
+                                else {
+                                    unreachable!()
+                                };
+
+                                no_alias.add(hypothesis.read_src, if_aliased_with);
                             }
                         }
 
                         output.set_value(new_output);
                     }
                 }
-                OptimisticScalar::Known(value) => {
+                ValueLattice::KnownConst(value) => {
                     for (output, taken_if) in [(truthy, 1), (falsy, 0)] {
-                        let mut new_output = input_effect.clone();
-                        new_output.is_dead = *value != taken_if;
-                        output.set_value(new_output);
+                        if value == taken_if {
+                            // Alive
+                            output.set_value_ref(input_effect);
+                        } else {
+                            // Dead
+                            output.set_value(EffectLattice::Dead);
+                        }
                     }
                 }
-                OptimisticScalar::Unknown => {
+                ValueLattice::Unknown => {
                     for output_effect in output_effects {
                         output_effect.set_value_ref(input_effect);
                     }
@@ -348,205 +368,10 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
 
         // Fallback
         let mut new_output_effect = input_effect.clone();
-        new_output_effect.arbitrary_write();
+        new_output_effect.arbitrary_write_monotonic();
 
         for output_effect in output_effects {
             output_effect.set_value_ref(&new_output_effect);
-        }
-    }
-}
-
-// === Lattices === //
-
-#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
-pub struct PtrIdx(pub u32);
-
-#[derive(Debug, Clone, Eq, PartialEq, Default)]
-pub struct PointeeEffectLattice {
-    pub is_dead: bool,
-    pub no_alias: NoAliasSet,
-    pub known_pointees: KnownPointeeMap,
-}
-
-impl PointeeEffectLattice {
-    pub fn read(&self, ptr: PtrIdx) -> OptimisticScalar {
-        match self.known_pointees.raw.get(&ptr) {
-            Some(&value) => OptimisticScalar::Known(value),
-            None => OptimisticScalar::LoadKnown(LoadHypothesis {
-                read_src: ptr,
-                branches: self.known_pointees.clone(),
-            }),
-        }
-    }
-
-    pub fn write(&mut self, ptr: PtrIdx, value: &OptimisticScalar) {
-        let value = match value {
-            OptimisticScalar::Known(value) => Some(*value),
-            OptimisticScalar::Unknown | OptimisticScalar::LoadKnown(_) => None,
-        };
-
-        let map = Rc::make_mut(&mut self.known_pointees.raw);
-
-        map.retain(|&other_ptr, &mut other_value| {
-            if self.no_alias.has(ptr, other_ptr) {
-                return true;
-            }
-
-            Some(other_value) == value
-        });
-
-        if let Some(value) = value {
-            map.insert(ptr, value);
-        }
-    }
-
-    pub fn arbitrary_write(&mut self) {
-        self.known_pointees.clear();
-    }
-
-    pub fn join(&mut self, other: &Self) {
-        self.is_dead &= other.is_dead;
-        self.no_alias.join(&other.no_alias);
-        self.known_pointees.join(&other.known_pointees);
-    }
-
-    pub fn join_phi(mut input_values: &[&PointeeEffectLattice]) -> Self {
-        if input_values.is_empty() {
-            // Empty phi nodes output default effects.
-            return PointeeEffectLattice::default();
-        }
-
-        // Split out the first live input.
-        let (first, remainder) = loop {
-            let Some((first, remainder)) = input_values.split_first() else {
-                return PointeeEffectLattice {
-                    is_dead: true,
-                    ..Default::default()
-                };
-            };
-
-            if !first.is_dead {
-                break (first, remainder);
-            }
-
-            input_values = remainder;
-        };
-
-        // Join all remaining live inputs.
-        let mut target = (*first).clone();
-
-        for &other in remainder {
-            if !other.is_dead {
-                target.join(other);
-            }
-        }
-
-        target
-    }
-}
-
-#[derive(Clone, Eq, PartialEq, Default)]
-pub struct NoAliasSet {
-    pairs: FxHashSet<[PtrIdx; 2]>,
-}
-
-impl fmt::Debug for NoAliasSet {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.pairs.fmt(f)
-    }
-}
-
-impl NoAliasSet {
-    pub fn add(&mut self, lhs: PtrIdx, rhs: PtrIdx) {
-        let mut pair = [lhs, rhs];
-        pair.sort();
-        self.pairs.insert(pair);
-    }
-
-    pub fn has(&self, lhs: PtrIdx, rhs: PtrIdx) -> bool {
-        let mut pair = [lhs, rhs];
-        pair.sort();
-        self.pairs.contains(&pair)
-    }
-
-    pub fn join(&mut self, other: &Self) {
-        self.pairs.retain(|pair| other.pairs.contains(pair));
-    }
-}
-
-#[derive(Clone, Eq, PartialEq, Default)]
-pub struct KnownPointeeMap {
-    pub raw: Rc<FxHashMap<PtrIdx, u64>>,
-}
-
-impl fmt::Debug for KnownPointeeMap {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.raw.fmt(f)
-    }
-}
-
-impl KnownPointeeMap {
-    pub fn clear(&mut self) {
-        if let Some(map) = Rc::get_mut(&mut self.raw) {
-            map.clear();
-        } else {
-            self.raw = Rc::new(FxHashMap::default());
-        }
-    }
-
-    pub fn join(&mut self, other: &Self) {
-        Rc::make_mut(&mut self.raw)
-            .retain(|key, value| other.raw.get(key).is_some_and(|other| value == other));
-    }
-
-    pub fn map(&mut self, mut f: impl FnMut(u64) -> u64) {
-        for value in Rc::make_mut(&mut self.raw).values_mut() {
-            *value = f(*value);
-        }
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum OptimisticScalar {
-    Known(u64),
-    LoadKnown(LoadHypothesis),
-    Unknown,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct LoadHypothesis {
-    pub read_src: PtrIdx,
-    pub branches: KnownPointeeMap,
-}
-
-impl OptimisticScalar {
-    pub fn map(&mut self, mut f: impl FnMut(u64) -> u64) {
-        match self {
-            OptimisticScalar::Known(value) => {
-                *value = f(*value);
-            }
-            OptimisticScalar::LoadKnown(load_hypothesis) => {
-                load_hypothesis.branches.map(f);
-            }
-            OptimisticScalar::Unknown => {
-                // (nothing to update)
-            }
-        }
-    }
-
-    pub fn join(&mut self, other: &OptimisticScalar) {
-        match (&mut *self, other) {
-            (OptimisticScalar::Known(lhs), OptimisticScalar::Known(rhs)) if lhs == rhs => {
-                // (no-op)
-            }
-            (OptimisticScalar::LoadKnown(lhs), OptimisticScalar::LoadKnown(rhs))
-                if lhs.read_src == rhs.read_src =>
-            {
-                lhs.branches.join(&rhs.branches);
-            }
-            _ => {
-                *self = OptimisticScalar::Unknown;
-            }
         }
     }
 }

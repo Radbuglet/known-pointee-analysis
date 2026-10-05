@@ -18,6 +18,7 @@ use crate::{
 
 pub mod analysis;
 pub mod dataflow;
+pub mod lattice;
 
 fn main() -> anyhow::Result<()> {
     // Parse arguments
