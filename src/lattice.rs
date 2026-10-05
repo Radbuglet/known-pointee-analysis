@@ -83,10 +83,18 @@ impl ValueLattice {
             {
                 lhs.branches.join(&rhs.branches);
             }
-            (ValueLattice::Dead, ValueLattice::Dead) => {
-                *self = ValueLattice::Dead;
+            (ValueLattice::Dead, other) => {
+                *self = other.clone();
             }
-            _ => {
+            (_, ValueLattice::Dead) => {
+                // (no-op)
+            }
+            (ValueLattice::Unknown, _)
+            | (_, ValueLattice::Unknown)
+            | (ValueLattice::KnownConst(_), ValueLattice::KnownLoad(_))
+            | (ValueLattice::KnownLoad(_), ValueLattice::KnownConst(_))
+            | (ValueLattice::KnownConst(_), ValueLattice::KnownConst(_))
+            | (ValueLattice::KnownLoad(_), ValueLattice::KnownLoad(_)) => {
                 *self = ValueLattice::Unknown;
             }
         }

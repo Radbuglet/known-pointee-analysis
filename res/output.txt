@@ -17,11 +17,11 @@ llvm.func @_Z4meowPjS_: llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variad
         -> effects: Alive { no_alias: {}, known_pointees: {} }
 
         v2 = llvm.load v0 [align : 4] : builtin.integer i32 !0
-        -> result: LoadKnown(LoadHypothesis { read_src: PtrIdx(0), branches: {} })
+        -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(0), branches: {} })
         -> effects: Alive { no_alias: {}, known_pointees: {} }
 
         v4 = llvm.icmp v2 <EQ> v3 : builtin.integer i1
-        -> result: LoadKnown(LoadHypothesis { read_src: PtrIdx(0), branches: {} })
+        -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(0), branches: {} })
         -> effects: Alive { no_alias: {}, known_pointees: {} }
 
         llvm.cond_br if v4 ^block4v1() else ^block3v1()
@@ -44,11 +44,11 @@ llvm.func @_Z4meowPjS_: llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variad
         -> effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 2} }
 
         v7 = llvm.load v1 [align : 4] : builtin.integer i32 !0
-        -> result: LoadKnown(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(0): 2} })
+        -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(0): 2} })
         -> effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 2} }
 
         v9 = llvm.icmp v7 <EQ> v8 : builtin.integer i1
-        -> result: LoadKnown(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(0): 0} })
+        -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(0): 0} })
         -> effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 2} }
 
         llvm.cond_br if v9 ^block6v1() else ^block5v1()
@@ -74,11 +74,11 @@ llvm.func @_Z4meowPjS_: llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variad
         -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
 
         v11 = llvm.load v0 [align : 4] : builtin.integer i32 !0
-        -> result: KnownConst(1)
+        -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(0), branches: {PtrIdx(0): 1, PtrIdx(1): 3} })
         -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
 
         v12 = llvm.icmp v11 <EQ> v3 : builtin.integer i1
-        -> result: KnownConst(1)
+        -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(0), branches: {PtrIdx(0): 1, PtrIdx(1): 0} })
         -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
 
         llvm.cond_br if v12 ^block8v1() else ^block7v1()
@@ -101,11 +101,11 @@ llvm.func @_Z4meowPjS_: llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variad
         -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 2, PtrIdx(1): 3} }
 
         v14 = llvm.load v1 [align : 4] : builtin.integer i32 !0
-        -> result: KnownConst(3)
+        -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(0): 2, PtrIdx(1): 3} })
         -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 2, PtrIdx(1): 3} }
 
         v15 = llvm.icmp v14 <EQ> v8 : builtin.integer i1
-        -> result: KnownConst(1)
+        -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(0): 0, PtrIdx(1): 1} })
         -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 2, PtrIdx(1): 3} }
 
         llvm.cond_br if v15 ^block10v1() else ^block9v1()

@@ -321,15 +321,8 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
                                 // aliased with `if_aliased_with`, we know that, for the branch to
                                 // be taken, `hypothesis.read_src` and `if_aliased_with` may not
                                 // alias.
-                                let EffectLattice::Alive {
-                                    no_alias,
-                                    known_pointees: _,
-                                } = &mut new_output
-                                else {
-                                    unreachable!()
-                                };
-
-                                no_alias.add(hypothesis.read_src, if_aliased_with);
+                                new_output
+                                    .push_no_alias_monotonic(hypothesis.read_src, if_aliased_with);
                             }
                         }
 
