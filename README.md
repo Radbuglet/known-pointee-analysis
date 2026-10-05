@@ -27,6 +27,8 @@ This project is written in `pliron` because I didn't really want to define my la
 
 ## Notes on Dataflow
 
-It's important to note that this is actually a pessimistic analysis rather than an optimistic one so our lattice orders are actually inverted from what they are usually. This means that knowing more information about a program effect or value should not put you in a scenario where you subsequently learn less.
+This is actually a pessimistic analysis rather than an optimistic one so our lattice orders are actually inverted from what they are usually. This means that knowing more information about a program effect or value should not put you in a scenario where you subsequently learn less.
 
-==TODO: Document lattices specifically and prove monotonicity for each operation==
+Here's what our lattices look like...
+
+![lattices](./assets/lattices.png)
