@@ -111,7 +111,7 @@ fn main() -> anyhow::Result<()> {
                         no_alias,
                         known_pointees,
                     } => {
-                        !no_alias.pairs.is_empty() && !known_pointees.raw.is_empty()
+                        no_alias.pairs.len() >= 2 && !known_pointees.raw.is_empty()
                     }
                 },
                 &|value| match value {
