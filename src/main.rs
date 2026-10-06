@@ -14,6 +14,7 @@ use pliron_llvm::{
 use crate::{
     analysis::PointeeConstantsFacts,
     dataflow::{DataflowGraph, dataflow_pretty},
+    lattice::{EffectLattice, ValueLattice},
 };
 
 pub mod analysis;
@@ -98,7 +99,32 @@ fn main() -> anyhow::Result<()> {
 
         let graph = &*analysis_mgr.try_get_analysis::<DataflowGraph>(op).unwrap();
 
-        println!("{}", dataflow_pretty(&ctx, graph, scratch));
+        println!(
+            "{}",
+            dataflow_pretty(
+                &ctx,
+                graph,
+                scratch,
+                &|effect| match effect {
+                    EffectLattice::Dead => true,
+                    EffectLattice::Alive {
+                        no_alias,
+                        known_pointees: _,
+                    } => {
+                        !no_alias.pairs.is_empty()
+                    }
+                },
+                &|value| match value {
+                    ValueLattice::Dead => true,
+                    ValueLattice::KnownConst(_) => false,
+                    ValueLattice::KnownLoad(hypothesis) => {
+                        hypothesis.branches.get(hypothesis.read_src).is_some()
+                            || hypothesis.branches.raw.len() > 1
+                    }
+                    ValueLattice::Unknown => false,
+                }
+            )
+        );
     }
 
     Ok(())

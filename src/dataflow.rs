@@ -831,6 +831,8 @@ mod pretty {
         pub ctx: &'a Context,
         pub graph: &'a DataflowGraph,
         pub scratch: &'a DataflowScratch<E, V>,
+        pub is_interesting_effect: &'a dyn Fn(&'a E) -> bool,
+        pub is_interesting_value: &'a dyn Fn(&'a V) -> bool,
     }
 
     impl<E, V> fmt::Display for DataflowFactPretty<'_, E, V>
@@ -843,6 +845,8 @@ mod pretty {
                 ctx,
                 graph,
                 scratch,
+                is_interesting_effect,
+                is_interesting_value,
             } = self;
 
             writeln!(
@@ -871,27 +875,30 @@ mod pretty {
                     .disp(ctx),
                 )?;
 
-                writeln!(
-                    f,
-                    "    -> effects: {:?}",
-                    scratch.effect(
+                {
+                    let effect = scratch.effect(
                         graph.node_defs[graph.bb_map[&bb].effect_phi_node]
                             .unwrap_effect_phi_ref()
-                            .output_effect
-                    )
-                )?;
+                            .output_effect,
+                    );
+
+                    if is_interesting_effect(effect) {
+                        writeln!(f, "    -> [!] effects: {effect:?}")?;
+                    }
+                }
 
                 for (idx, argument) in bb_r.arguments().enumerate() {
-                    writeln!(
-                        f,
-                        "    -> {}: {:?}",
-                        argument.disp(ctx),
-                        scratch.value(
-                            graph.node_defs[graph.bb_map[&bb].arg_phi_nodes[idx]]
-                                .unwrap_value_phi_ref()
-                                .output_value
-                        )
-                    )?;
+                    let value = scratch.value(
+                        graph.node_defs[graph.bb_map[&bb].arg_phi_nodes[idx]]
+                            .unwrap_value_phi_ref()
+                            .output_value,
+                    );
+
+                    if !is_interesting_value(value) {
+                        continue;
+                    }
+
+                    writeln!(f, "    -> [!] {}: {value:?}", argument.disp(ctx),)?;
                 }
 
                 writeln!(f)?;
@@ -899,18 +906,19 @@ mod pretty {
                 for stmt in bb_r.iter(ctx) {
                     writeln!(f, "        {}", stmt.disp(ctx))?;
 
-                    if let Some(output) = graph.node_defs[graph.op_map[&stmt]].as_output_value() {
-                        writeln!(f, "        -> result: {:?}", scratch.value(output))?;
+                    if let Some(output) = graph.node_defs[graph.op_map[&stmt]].as_output_value()
+                        && let output = scratch.value(output)
+                        && is_interesting_value(output)
+                    {
+                        writeln!(f, "        -> [!] result: {output:?}")?;
                     }
 
                     if let Some(DataflowGraphNodeStmt { output_effect, .. }) =
                         graph.node_defs[graph.op_map[&stmt]].as_stmt_ref()
+                        && let output_effect = scratch.effect(*output_effect)
+                        && is_interesting_effect(output_effect)
                     {
-                        writeln!(
-                            f,
-                            "        -> effects: {:?}",
-                            scratch.effect(*output_effect)
-                        )?;
+                        writeln!(f, "        -> [!] effects: {output_effect:?}")?;
                     }
 
                     writeln!(f)?;
@@ -928,6 +936,8 @@ pub fn dataflow_pretty<'a, E, V>(
     ctx: &'a Context,
     graph: &'a DataflowGraph,
     scratch: &'a DataflowScratch<E, V>,
+    is_interesting_effect: &'a dyn Fn(&'a E) -> bool,
+    is_interesting_value: &'a dyn Fn(&'a V) -> bool,
 ) -> Box<dyn Display + 'a>
 where
     E: fmt::Debug,
@@ -937,6 +947,8 @@ where
         ctx,
         graph,
         scratch,
+        is_interesting_effect,
+        is_interesting_value,
     })
 }
 

@@ -223,7 +223,7 @@ impl EffectLattice {
 
 #[derive(Clone, Eq, PartialEq, Default)]
 pub struct NoAliasSet {
-    pairs: FxHashSet<[PtrIdx; 2]>,
+    pub pairs: FxHashSet<[PtrIdx; 2]>,
 }
 
 impl fmt::Debug for NoAliasSet {
