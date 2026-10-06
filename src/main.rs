@@ -106,20 +106,20 @@ fn main() -> anyhow::Result<()> {
                 graph,
                 scratch,
                 &|effect| match effect {
-                    EffectLattice::Dead => true,
+                    EffectLattice::Dead => false,
                     EffectLattice::Alive {
                         no_alias,
-                        known_pointees: _,
+                        known_pointees,
                     } => {
-                        !no_alias.pairs.is_empty()
+                        !no_alias.pairs.is_empty() && !known_pointees.raw.is_empty()
                     }
                 },
                 &|value| match value {
-                    ValueLattice::Dead => true,
+                    ValueLattice::Dead => false,
                     ValueLattice::KnownConst(_) => false,
                     ValueLattice::KnownLoad(hypothesis) => {
                         hypothesis.branches.get(hypothesis.read_src).is_some()
-                            || hypothesis.branches.raw.len() > 1
+                            || hypothesis.branches.raw.len() > 2
                     }
                     ValueLattice::Unknown => false,
                 }

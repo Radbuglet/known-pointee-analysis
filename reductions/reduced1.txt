@@ -1,0 +1,14 @@
+; For some reason, `llvm-opt` does not remove null pointer dereferences.
+llvm.func @stbi__jpeg_load: llvm.func <builtin.integer i32() variadic = false>
+    ^entry_block2v1()
+
+        v0 = llvm.constant <builtin.integer <0: i32>> : builtin.integer i32
+
+        v1 = llvm.zero : llvm.ptr (0)
+
+        llvm.store *v1 <- v0 [align : 8]
+
+        v2 = llvm.load v1 [align : 8] : builtin.integer i32
+        -> [!] result: KnownLoad(LoadHypothesis { read_src: PtrIdx(0), branches: {PtrIdx(0): 0} })
+
+        llvm.return v2

@@ -7,6 +7,7 @@ use pliron::{
     },
     context::{Context, Ptr},
     graph::walkers::{self, WalkConfig},
+    op::op_cast,
     operation::Operation,
     pass::{Analysis, AnalysisManager},
     result::Error as PlironError,
@@ -15,8 +16,11 @@ use pliron::{
 };
 use pliron_llvm::{
     attributes::ICmpPredicateAttr,
-    op_interfaces::VolatilityOpInterface,
-    ops::{BrOp, CondBrOp, ConstantOp, FuncOp, ICmpOp, LoadOp, StoreOp, TruncOp},
+    op_interfaces::{BinArithOp, VolatilityOpInterface},
+    ops::{
+        BrOp, CallIntrinsicOp, CondBrOp, ConstantOp, FuncOp, GetElementPtrOp, ICmpOp, LoadOp,
+        SExtOp, StoreOp, TruncOp,
+    },
     types::PointerType,
 };
 use rustc_hash::FxHashMap;
@@ -117,6 +121,36 @@ impl MeowAnalysis<'_> {
             let next_idx = PtrIdx(self.pointers.len() as u32);
             self.pointers.entry(value).or_insert(next_idx);
         }
+    }
+
+    fn is_pure(&self, operation: Ptr<Operation>) -> bool {
+        let ctx = self.ctx;
+
+        if let Some(operation) = Operation::get_op::<CallIntrinsicOp>(operation, ctx)
+            && operation
+                .get_attr_llvm_intrinsic_name(ctx)
+                .is_some_and(|v| v.as_str() == "llvm.lifetime.start.p0")
+        {
+            return true;
+        }
+
+        if Operation::is_op::<SExtOp>(operation, ctx) {
+            return true;
+        }
+
+        if Operation::is_op::<GetElementPtrOp>(operation, ctx) {
+            return true;
+        }
+
+        if Operation::is_op::<ICmpOp>(operation, ctx) {
+            return true;
+        }
+
+        if op_cast::<dyn BinArithOp>(&*Operation::get_op_dyn(operation, ctx)).is_some() {
+            return true;
+        }
+
+        false
     }
 }
 
@@ -265,6 +299,17 @@ impl<'a> DataflowAnalysis<'a> for MeowAnalysis<'a> {
             output_state
                 .unwrap()
                 .set_value(input_effect.read_monotonic(ptr));
+
+            return;
+        }
+
+        // Pure operations
+        if self.is_pure(operation) {
+            if let Some(output_state) = output_state {
+                output_state.set_value(ValueLattice::Unknown);
+            }
+
+            output_effect.set_value_ref(input_effect);
 
             return;
         }
