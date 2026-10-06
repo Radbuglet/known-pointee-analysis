@@ -1103,7 +1103,7 @@ impl<'s, 'a, T> DisjointBorrowsBuilder<'s, 'a, T> {
 
         self.scratch.undo_set.push(index);
 
-        unsafe { &mut *self.target.cast::<T>().add(index) }
+        unsafe { &*self.target.cast::<T>().add(index) }
     }
 
     fn get_mut(&mut self, index: usize) -> &'a mut T {
