@@ -117,10 +117,7 @@ fn main() -> anyhow::Result<()> {
                 &|value| match value {
                     ValueLattice::Dead => false,
                     ValueLattice::KnownConst(_) => false,
-                    ValueLattice::KnownLoad(hypothesis) => {
-                        hypothesis.branches.get(hypothesis.read_src).is_some()
-                            || hypothesis.branches.raw.len() > 2
-                    }
+                    ValueLattice::KnownLoad(_) => false,
                     ValueLattice::Unknown => false,
                 }
             )

@@ -882,9 +882,15 @@ mod pretty {
                             .output_effect,
                     );
 
-                    if is_interesting_effect(effect) {
-                        writeln!(f, "    -> [!] effects: {effect:?}")?;
-                    }
+                    writeln!(
+                        f,
+                        "    -> {} effects: {effect:?}",
+                        if is_interesting_effect(effect) {
+                            "[!]"
+                        } else {
+                            ""
+                        }
+                    )?;
                 }
 
                 for (idx, argument) in bb_r.arguments().enumerate() {
@@ -894,11 +900,16 @@ mod pretty {
                             .output_value,
                     );
 
-                    if !is_interesting_value(value) {
-                        continue;
-                    }
-
-                    writeln!(f, "    -> [!] {}: {value:?}", argument.disp(ctx),)?;
+                    writeln!(
+                        f,
+                        "    -> {} {}: {value:?}",
+                        if is_interesting_value(value) {
+                            "[!]"
+                        } else {
+                            ""
+                        },
+                        argument.disp(ctx),
+                    )?;
                 }
 
                 writeln!(f)?;
@@ -906,19 +917,34 @@ mod pretty {
                 for stmt in bb_r.iter(ctx) {
                     writeln!(f, "        {}", stmt.disp(ctx))?;
 
-                    if let Some(output) = graph.node_defs[graph.op_map[&stmt]].as_output_value()
-                        && let output = scratch.value(output)
-                        && is_interesting_value(output)
-                    {
-                        writeln!(f, "        -> [!] result: {output:?}")?;
+                    if let Some(output) = graph.node_defs[graph.op_map[&stmt]].as_output_value() {
+                        let output = scratch.value(output);
+
+                        writeln!(
+                            f,
+                            "        -> {} result: {output:?}",
+                            if is_interesting_value(output) {
+                                "[!]"
+                            } else {
+                                ""
+                            }
+                        )?;
                     }
 
                     if let Some(DataflowGraphNodeStmt { output_effect, .. }) =
                         graph.node_defs[graph.op_map[&stmt]].as_stmt_ref()
-                        && let output_effect = scratch.effect(*output_effect)
-                        && is_interesting_effect(output_effect)
                     {
-                        writeln!(f, "        -> [!] effects: {output_effect:?}")?;
+                        let output_effect = scratch.effect(*output_effect);
+
+                        writeln!(
+                            f,
+                            "        -> {} effects: {output_effect:?}",
+                            if is_interesting_effect(output_effect) {
+                                "[!]"
+                            } else {
+                                ""
+                            }
+                        )?;
                     }
 
                     writeln!(f)?;

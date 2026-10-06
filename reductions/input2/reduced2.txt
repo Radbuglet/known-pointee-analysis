@@ -1,0 +1,43 @@
+llvm.func @nk_panel_begin: llvm.func <builtin.integer i32() variadic = false>
+    ^entry_block2v1()
+    ->  effects: Alive { no_alias: {}, known_pointees: {} }
+
+        v0 = llvm.constant <builtin.integer <0: i32>> : builtin.integer i32
+        ->  result: KnownConst(0)
+        ->  effects: Alive { no_alias: {}, known_pointees: {} }
+
+        v1 = llvm.poison : llvm.ptr (0)
+        ->  result: Unknown
+        ->  effects: Alive { no_alias: {}, known_pointees: {} }
+
+        v2 = llvm.zero : llvm.ptr (0)
+        ->  result: Unknown
+        ->  effects: Alive { no_alias: {}, known_pointees: {} }
+
+        llvm.store *v1 <- v0 [align : 4]
+        ->  effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 0} }
+
+        v3 = llvm.load v2 [align : 8] : builtin.integer i32
+        ->  result: KnownLoad(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(0): 0} })
+        ->  effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 0} }
+
+        v4 = llvm.icmp v3 <EQ> v0 : builtin.integer i1
+        ->  result: KnownLoad(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(0): 1} })
+        ->  effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 0} }
+
+        llvm.cond_br if v4 ^block4v1() else ^block3v1()
+
+
+    ^block3v1()
+    -> [!] effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 0} }
+
+        llvm.return v0
+
+
+    ^block4v1()
+    ->  effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 0} }
+
+        llvm.return v0
+
+
+
