@@ -4,7 +4,7 @@ target datalayout = "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-n32:
 target triple = "arm64-apple-macosx15.0.0"
 
 @.str = private constant [29 x i8] c"bad analysis at location %u\0A\00", align 1
-@.str.1 = private constant [28 x i8] c"I'm allegedly unreachable!\0A\00", align 1
+@.str.1 = private constant [27 x i8] c"I'm allegedly unreachable!\00", align 1
 
 ; Function Attrs: mustprogress nofree noinline nounwind ssp uwtable(sync)
 define void @meow_assert(i1 %0, i32 %1) #0 {
@@ -22,8 +22,8 @@ block4v1:                                         ; preds = %block3v1, %entry_bl
 ; Function Attrs: nofree nounwind
 declare i32 @printf(ptr, ...) #1
 
-; Function Attrs: mustprogress nofree nounwind ssp uwtable(sync)
-define void @_Z4meowPyPh(ptr %0, ptr %1) #2 {
+; Function Attrs: mustprogress nofree noinline nounwind ssp uwtable(sync)
+define void @_Z4meowPyPh(ptr %0, ptr %1) #0 {
 entry_block5v1:
   store i64 1, ptr %0, align 8, !tbaa !10
   store i8 1, ptr %1, align 1, !tbaa !12
@@ -45,16 +45,28 @@ block7v1:                                         ; preds = %block6v1, %entry_bl
 declare i32 @puts(ptr) #1
 
 ; Function Attrs: mustprogress nofree norecurse nounwind ssp uwtable(sync)
-define i32 @main() #3 {
+define i32 @main() #2 {
 entry_block8v1:
-  %v13 = call i32 @puts(ptr @.str.1)
+  %v13 = alloca i64, align 8
+  call void @llvm.lifetime.start.p0(ptr %v13) #4
+  store i64 1, ptr %v13, align 8, !tbaa !10
+  %v16 = getelementptr inbounds nuw i8, ptr %v13, i64 1
+  call void @_Z4meowPyPh(ptr %v13, ptr %v16)
+  call void @llvm.lifetime.end.p0(ptr %v13) #4
   ret i32 0
 }
 
+; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: readwrite)
+declare void @llvm.lifetime.start.p0(ptr captures(none)) #3
+
+; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: readwrite)
+declare void @llvm.lifetime.end.p0(ptr captures(none)) #3
+
 attributes #0 = { mustprogress nofree noinline nounwind ssp uwtable(sync) "frame-pointer"="non-leaf-no-reserve" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="apple-m1" "target-features"="+aes,+altnzcv,+ccdp,+ccidx,+ccpp,+complxnum,+crc,+dit,+dotprod,+flagm,+fp-armv8,+fp16fml,+fptoint,+fullfp16,+jsconv,+lse,+neon,+pauth,+perfmon,+predres,+ras,+rcpc,+rdm,+sb,+sha2,+sha3,+specrestrict,+ssbs,+v8.1a,+v8.2a,+v8.3a,+v8.4a,+v8a" "tune-cpu"="apple-m5" }
 attributes #1 = { nofree nounwind "frame-pointer"="non-leaf-no-reserve" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="apple-m1" "target-features"="+aes,+altnzcv,+ccdp,+ccidx,+ccpp,+complxnum,+crc,+dit,+dotprod,+flagm,+fp-armv8,+fp16fml,+fptoint,+fullfp16,+jsconv,+lse,+neon,+pauth,+perfmon,+predres,+ras,+rcpc,+rdm,+sb,+sha2,+sha3,+specrestrict,+ssbs,+v8.1a,+v8.2a,+v8.3a,+v8.4a,+v8a" "tune-cpu"="apple-m5" }
-attributes #2 = { mustprogress nofree nounwind ssp uwtable(sync) "frame-pointer"="non-leaf-no-reserve" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="apple-m1" "target-features"="+aes,+altnzcv,+ccdp,+ccidx,+ccpp,+complxnum,+crc,+dit,+dotprod,+flagm,+fp-armv8,+fp16fml,+fptoint,+fullfp16,+jsconv,+lse,+neon,+pauth,+perfmon,+predres,+ras,+rcpc,+rdm,+sb,+sha2,+sha3,+specrestrict,+ssbs,+v8.1a,+v8.2a,+v8.3a,+v8.4a,+v8a" "tune-cpu"="apple-m5" }
-attributes #3 = { mustprogress nofree norecurse nounwind ssp uwtable(sync) "frame-pointer"="non-leaf-no-reserve" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="apple-m1" "target-features"="+aes,+altnzcv,+ccdp,+ccidx,+ccpp,+complxnum,+crc,+dit,+dotprod,+flagm,+fp-armv8,+fp16fml,+fptoint,+fullfp16,+jsconv,+lse,+neon,+pauth,+perfmon,+predres,+ras,+rcpc,+rdm,+sb,+sha2,+sha3,+specrestrict,+ssbs,+v8.1a,+v8.2a,+v8.3a,+v8.4a,+v8a" "tune-cpu"="apple-m5" }
+attributes #2 = { mustprogress nofree norecurse nounwind ssp uwtable(sync) "frame-pointer"="non-leaf-no-reserve" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="apple-m1" "target-features"="+aes,+altnzcv,+ccdp,+ccidx,+ccpp,+complxnum,+crc,+dit,+dotprod,+flagm,+fp-armv8,+fp16fml,+fptoint,+fullfp16,+jsconv,+lse,+neon,+pauth,+perfmon,+predres,+ras,+rcpc,+rdm,+sb,+sha2,+sha3,+specrestrict,+ssbs,+v8.1a,+v8.2a,+v8.3a,+v8.4a,+v8a" "tune-cpu"="apple-m5" }
+attributes #3 = { nocallback nofree nosync nounwind willreturn memory(argmem: readwrite) }
+attributes #4 = { nounwind }
 
 !llvm.module.flags = !{!0, !1, !2, !3}
 !llvm.ident = !{!4}

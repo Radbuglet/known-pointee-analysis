@@ -66,20 +66,22 @@ LBB1_2:                                 ; %block7v1
 _main:                                  ; @main
 	.cfi_startproc
 ; %bb.0:                                ; %entry_block8v1
-	stp	x29, x30, [sp, #-16]!           ; 16-byte Folded Spill
-	mov	x29, sp
+	sub	sp, sp, #32
+	stp	x29, x30, [sp, #16]             ; 16-byte Folded Spill
+	add	x29, sp, #16
 	.cfi_def_cfa w29, 16
 	.cfi_offset w30, -8
 	.cfi_offset w29, -16
-Lloh4:
-	adrp	x0, l_.str.1@PAGE
-Lloh5:
-	add	x0, x0, l_.str.1@PAGEOFF
-	bl	_puts
+	mov	w8, #1                          ; =0x1
+	str	x8, [sp, #8]
+	add	x8, sp, #8
+	add	x0, sp, #8
+	orr	x1, x8, #0x1
+	bl	__Z4meowPyPh
 	mov	w0, #0                          ; =0x0
-	ldp	x29, x30, [sp], #16             ; 16-byte Folded Reload
+	ldp	x29, x30, [sp, #16]             ; 16-byte Folded Reload
+	add	sp, sp, #32
 	ret
-	.loh AdrpAdd	Lloh4, Lloh5
 	.cfi_endproc
                                         ; -- End function
 	.section	__TEXT,__const
@@ -87,6 +89,6 @@ l_.str:                                 ; @.str
 	.asciz	"bad analysis at location %u\n"
 
 l_.str.1:                               ; @.str.1
-	.asciz	"I'm allegedly unreachable!\n"
+	.asciz	"I'm allegedly unreachable!"
 
 .subsections_via_symbols

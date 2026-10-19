@@ -13,14 +13,14 @@ extern "C"
     }
 }
 
-void meow(uint64_t *foo, uint8_t *bar)
+__attribute__((noinline)) void meow(uint64_t *foo, uint8_t *bar)
 {
     *foo = 1;
     *bar = 1;
 
     if (*foo != 1)
     {
-        puts("I'm allegedly unreachable!\n");
+        puts("I'm allegedly unreachable!");
     }
 }
 
