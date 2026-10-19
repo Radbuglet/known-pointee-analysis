@@ -87,7 +87,7 @@ __Z4meowPjS_:                           ; @_Z4meowPjS_
 	str	w8, [x0]
 	ldr	w8, [x1]
 	cmp	w8, #3
-	b.ne	LBB3_6
+	b.ne	LBB3_7
 ; %bb.4:                                ; %block15v1
 	mov	w8, #1                          ; =0x1
 	str	w8, [x0]
@@ -98,6 +98,13 @@ __Z4meowPjS_:                           ; @_Z4meowPjS_
 LBB3_5:                                 ; %block8v1
 	bl	__Z5panicv
 LBB3_6:                                 ; %block12v1
+	mov	w0, #0                          ; =0x0
+	mov	w1, #0                          ; =0x0
+	bl	_meow_assert
+	bl	__Z5panicv
+LBB3_7:                                 ; %block14v1
+	mov	w0, #0                          ; =0x0
+	mov	w1, #1                          ; =0x1
 	bl	_meow_assert
 	bl	__Z5panicv
 	.cfi_endproc

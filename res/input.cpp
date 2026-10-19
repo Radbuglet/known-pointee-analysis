@@ -2,19 +2,20 @@
 #include <cstdio>
 #include <cstdlib>
 
-[[noreturn]] void panic()
+__attribute__((noinline)) [[noreturn]]
+void panic()
 {
     puts("panicked!");
     exit(EXIT_FAILURE);
 }
 
-void arbitrary_side_effect()
+__attribute__((noinline)) void arbitrary_side_effect()
 {
 }
 
 extern "C"
 {
-    void meow_assert(bool cond, unsigned int location)
+    __attribute__((noinline)) void meow_assert(bool cond, unsigned int location)
     {
         if (!cond)
         {

@@ -1,6 +1,9 @@
+use std::num::NonZeroUsize;
+
 use pliron::{
     builtin::{
-        op_interfaces::CallOpCallable,
+        attributes::IntegerAttr,
+        op_interfaces::{CallOpCallable, OneResultInterface},
         types::{IntegerType, Signedness},
     },
     context::{Context, Ptr},
@@ -14,10 +17,11 @@ use pliron::{
     operation::Operation,
     pass::{AnalysisManager, Pass, PassResult},
     result::Error as PlironError,
+    utils::apint::APInt,
 };
 use pliron_llvm::{
-    ops::CallOp,
-    types::{FuncType, PointerType, VoidType},
+    ops::{CallOp, ConstantOp},
+    types::{FuncType, VoidType},
 };
 
 use crate::{analysis::PointeeConstantsFacts, dataflow::DataflowGraph, lattice::EffectLattice};
@@ -67,25 +71,42 @@ impl Pass for MeowAnnotate {
 
                 match input_effect {
                     EffectLattice::Dead => {
+                        let bool_ty = IntegerType::get(ctx, 1, Signedness::Signless);
+                        let uint_ty = IntegerType::get(ctx, 32, Signedness::Unsigned);
+
+                        let false_op = ConstantOp::new(
+                            ctx,
+                            Box::new(IntegerAttr::new(
+                                bool_ty,
+                                APInt::from_u32(0, NonZeroUsize::new(1).unwrap()),
+                            )),
+                        );
+
+                        let site_op = ConstantOp::new(
+                            ctx,
+                            Box::new(IntegerAttr::new(
+                                bool_ty,
+                                APInt::from_u32(loc_counter, NonZeroUsize::new(32).unwrap()),
+                            )),
+                        );
+
+                        loc_counter += 1;
+
                         let assert_op = CallOp::new(
                             ctx,
                             CallOpCallable::Direct(ident!("meow_assert")),
                             FuncType::get(
                                 ctx,
                                 VoidType::get(ctx).to_handle(),
-                                [
-                                    IntegerType::get(ctx, 1, Signedness::Signless).to_handle(),
-                                    IntegerType::get(ctx, 32, Signedness::Unsigned).to_handle(),
-                                ]
-                                .into(),
+                                [bool_ty.to_handle(), uint_ty.to_handle()].into(),
                                 false,
                             ),
-                            // FIXME
-                            [].into(),
-                        )
-                        .get_operation();
+                            [false_op.get_result(ctx), site_op.get_result(ctx)].into(),
+                        );
 
-                        inserter.insert_operation(ctx, assert_op);
+                        inserter.insert_operation(ctx, false_op.get_operation());
+                        inserter.insert_operation(ctx, site_op.get_operation());
+                        inserter.insert_operation(ctx, assert_op.get_operation());
                     }
                     EffectLattice::Alive {
                         no_alias,
