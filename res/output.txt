@@ -1,27 +1,59 @@
+llvm.func @_Z5panicv: llvm.func <llvm.void () variadic = false>
+    ^entry_block2v1()
+    -> effects: Alive { no_alias: {}, known_pointees: {} }
+
+        v0 = llvm.addressof @_str : llvm.ptr (0)
+        -> result: Unknown
+        -> effects: Alive { no_alias: {}, known_pointees: {} }
+
+        v2 = llvm.constant <builtin.integer <1: i32>> : builtin.integer i32
+        -> result: KnownConst(1)
+        -> effects: Alive { no_alias: {}, known_pointees: {} }
+
+        v1 = llvm.call @puts (v0) : llvm.func <builtin.integer i32(llvm.ptr (0)) variadic = false>
+        -> result: Unknown
+        -> effects: Alive { no_alias: {}, known_pointees: {} }
+
+        v3 = llvm.call @exit (v2) : llvm.func <llvm.void (builtin.integer i32) variadic = false> !0
+        -> result: Unknown
+        -> effects: Alive { no_alias: {}, known_pointees: {} }
+
+        llvm.unreachable 
+
+
+
+llvm.func @_Z21arbitrary_side_effectv: llvm.func <llvm.void () variadic = false>
+    ^entry_block3v1()
+    -> effects: Alive { no_alias: {}, known_pointees: {} }
+
+        llvm.return 
+
+
+
 llvm.func @meow_assert: llvm.func <llvm.void (builtin.integer i1, builtin.integer i32) variadic = false>
-    ^entry_block2v1("v0: builtin.integer i1", "v1: builtin.integer i32")
+    ^entry_block4v1("v4: builtin.integer i1", "v5: builtin.integer i32")
     -> effects: Alive { no_alias: {}, known_pointees: {} }
-    -> v0: Unknown
-    -> v1: Unknown
+    -> v4: Unknown
+    -> v5: Unknown
 
-        v2 = llvm.addressof @_str : llvm.ptr (0)
+        v6 = llvm.addressof @_str_1 : llvm.ptr (0)
         -> result: Unknown
         -> effects: Alive { no_alias: {}, known_pointees: {} }
 
-        llvm.cond_br if v0 ^block4v1() else ^block3v1()
+        llvm.cond_br if v4 ^block6v1() else ^block5v1()
 
 
-    ^block3v1()
+    ^block5v1()
     -> effects: Alive { no_alias: {}, known_pointees: {} }
 
-        v3 = llvm.call @printf (v2, v1) : llvm.func <builtin.integer i32(llvm.ptr (0)) variadic = true>
+        v7 = llvm.call @printf (v6, v5) : llvm.func <builtin.integer i32(llvm.ptr (0)) variadic = true>
         -> result: Unknown
         -> effects: Alive { no_alias: {}, known_pointees: {} }
 
-        llvm.br ^block4v1()
+        llvm.br ^block6v1()
 
 
-    ^block4v1()
+    ^block6v1()
     -> effects: Alive { no_alias: {}, known_pointees: {} }
 
         llvm.return 
@@ -29,65 +61,38 @@ llvm.func @meow_assert: llvm.func <llvm.void (builtin.integer i1, builtin.intege
 
 
 llvm.func @_Z4meowPjS_: llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variadic = false>
-    ^entry_block5v1("v4: llvm.ptr (0)", "v5: llvm.ptr (0)")
+    ^entry_block7v1("v8: llvm.ptr (0)", "v9: llvm.ptr (0)")
     -> effects: Alive { no_alias: {}, known_pointees: {} }
-    -> v4: Unknown
-    -> v5: Unknown
+    -> v8: Unknown
+    -> v9: Unknown
 
-        v7 = llvm.constant <builtin.integer <1: i32>> : builtin.integer i32
+        v11 = llvm.constant <builtin.integer <1: i32>> : builtin.integer i32
         -> result: KnownConst(1)
         -> effects: Alive { no_alias: {}, known_pointees: {} }
 
-        v10 = llvm.constant <builtin.integer <2: i32>> : builtin.integer i32
+        v14 = llvm.constant <builtin.integer <2: i32>> : builtin.integer i32
         -> result: KnownConst(2)
         -> effects: Alive { no_alias: {}, known_pointees: {} }
 
-        v12 = llvm.constant <builtin.integer <3: i32>> : builtin.integer i32
+        v16 = llvm.constant <builtin.integer <3: i32>> : builtin.integer i32
         -> result: KnownConst(3)
         -> effects: Alive { no_alias: {}, known_pointees: {} }
 
-        v6 = llvm.load v4 [align : 4] : builtin.integer i32 !0
+        v10 = llvm.load v8 [align : 4] : builtin.integer i32 !0
         -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(0), branches: {} })
         -> effects: Alive { no_alias: {}, known_pointees: {} }
 
-        v8 = llvm.icmp v6 <EQ> v7 : builtin.integer i1
+        v12 = llvm.icmp v10 <EQ> v11 : builtin.integer i1
         -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(0), branches: {} })
         -> effects: Alive { no_alias: {}, known_pointees: {} }
 
-        llvm.cond_br if v8 ^block7v1() else ^block6v1()
-
-
-    ^block6v1()
-    -> effects: Alive { no_alias: {}, known_pointees: {} }
-
-        v9 = llvm.call @_Z5panicv () : llvm.func <llvm.void () variadic = false> !0
-        -> result: Unknown
-        -> effects: Alive { no_alias: {}, known_pointees: {} }
-
-        llvm.unreachable 
-
-
-    ^block7v1()
-    -> effects: Alive { no_alias: {}, known_pointees: {} }
-
-        llvm.store *v4 <- v10 [align : 4] !0
-        -> effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 2} }
-
-        v11 = llvm.load v5 [align : 4] : builtin.integer i32 !0
-        -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(0): 2} })
-        -> effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 2} }
-
-        v13 = llvm.icmp v11 <EQ> v12 : builtin.integer i1
-        -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(0): 0} })
-        -> effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 2} }
-
-        llvm.cond_br if v13 ^block9v1() else ^block8v1()
+        llvm.cond_br if v12 ^block9v1() else ^block8v1()
 
 
     ^block8v1()
-    -> effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 2} }
+    -> effects: Alive { no_alias: {}, known_pointees: {} }
 
-        v14 = llvm.call @_Z5panicv () : llvm.func <llvm.void () variadic = false> !0
+        v13 = llvm.call @_Z5panicv () : llvm.func <llvm.void () variadic = false> !0
         -> result: Unknown
         -> effects: Alive { no_alias: {}, known_pointees: {} }
 
@@ -95,56 +100,56 @@ llvm.func @_Z4meowPjS_: llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variad
 
 
     ^block9v1()
-    -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 2} }
+    -> effects: Alive { no_alias: {}, known_pointees: {} }
 
-        llvm.store *v4 <- v7 [align : 4] !0
-        -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1} }
+        llvm.store *v8 <- v14 [align : 4] !0
+        -> effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 2} }
 
-        llvm.store *v5 <- v12 [align : 4] !0
-        -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
+        v15 = llvm.load v9 [align : 4] : builtin.integer i32 !0
+        -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(0): 2} })
+        -> effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 2} }
 
-        v15 = llvm.load v4 [align : 4] : builtin.integer i32 !0
-        -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(0), branches: {PtrIdx(0): 1, PtrIdx(1): 3} })
-        -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
+        v17 = llvm.icmp v15 <EQ> v16 : builtin.integer i1
+        -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(0): 0} })
+        -> effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 2} }
 
-        v16 = llvm.icmp v15 <EQ> v7 : builtin.integer i1
-        -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(0), branches: {PtrIdx(0): 1, PtrIdx(1): 0} })
-        -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
-
-        llvm.cond_br if v16 ^block11v1() else ^block10v1()
+        llvm.cond_br if v17 ^block11v1() else ^block10v1()
 
 
     ^block10v1()
-    -> effects: Dead
+    -> effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 2} }
 
-        v17 = llvm.call @_Z5panicv () : llvm.func <llvm.void () variadic = false> !0
-        -> result: Dead
-        -> effects: Dead
+        v18 = llvm.call @_Z5panicv () : llvm.func <llvm.void () variadic = false> !0
+        -> result: Unknown
+        -> effects: Alive { no_alias: {}, known_pointees: {} }
 
         llvm.unreachable 
 
 
     ^block11v1()
-    -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
+    -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 2} }
 
-        llvm.store *v4 <- v10 [align : 4] !0
-        -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 2, PtrIdx(1): 3} }
+        llvm.store *v8 <- v11 [align : 4] !0
+        -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1} }
 
-        v18 = llvm.load v5 [align : 4] : builtin.integer i32 !0
-        -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(0): 2, PtrIdx(1): 3} })
-        -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 2, PtrIdx(1): 3} }
+        llvm.store *v9 <- v16 [align : 4] !0
+        -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
 
-        v19 = llvm.icmp v18 <EQ> v12 : builtin.integer i1
-        -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(0): 0, PtrIdx(1): 1} })
-        -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 2, PtrIdx(1): 3} }
+        v19 = llvm.load v8 [align : 4] : builtin.integer i32 !0
+        -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(0), branches: {PtrIdx(0): 1, PtrIdx(1): 3} })
+        -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
 
-        llvm.cond_br if v19 ^block13v1() else ^block12v1()
+        v20 = llvm.icmp v19 <EQ> v11 : builtin.integer i1
+        -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(0), branches: {PtrIdx(0): 1, PtrIdx(1): 0} })
+        -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
+
+        llvm.cond_br if v20 ^block13v1() else ^block12v1()
 
 
     ^block12v1()
     -> effects: Dead
 
-        v20 = llvm.call @_Z5panicv () : llvm.func <llvm.void () variadic = false> !0
+        v21 = llvm.call @_Z5panicv () : llvm.func <llvm.void () variadic = false> !0
         -> result: Dead
         -> effects: Dead
 
@@ -152,15 +157,54 @@ llvm.func @_Z4meowPjS_: llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variad
 
 
     ^block13v1()
+    -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
+
+        llvm.store *v8 <- v14 [align : 4] !0
+        -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 2, PtrIdx(1): 3} }
+
+        v22 = llvm.load v9 [align : 4] : builtin.integer i32 !0
+        -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(0): 2, PtrIdx(1): 3} })
+        -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 2, PtrIdx(1): 3} }
+
+        v23 = llvm.icmp v22 <EQ> v16 : builtin.integer i1
+        -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(1), branches: {PtrIdx(0): 0, PtrIdx(1): 1} })
+        -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 2, PtrIdx(1): 3} }
+
+        llvm.cond_br if v23 ^block15v1() else ^block14v1()
+
+
+    ^block14v1()
+    -> effects: Dead
+
+        v24 = llvm.call @_Z5panicv () : llvm.func <llvm.void () variadic = false> !0
+        -> result: Dead
+        -> effects: Dead
+
+        llvm.unreachable 
+
+
+    ^block15v1()
     -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 2, PtrIdx(1): 3} }
 
-        llvm.store *v4 <- v7 [align : 4] !0
+        llvm.store *v8 <- v11 [align : 4] !0
         -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
 
-        llvm.store *v5 <- v12 [align : 4] !0
+        llvm.store *v9 <- v16 [align : 4] !0
         -> effects: Alive { no_alias: {[PtrIdx(0), PtrIdx(1)]}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 3} }
 
         llvm.return 
+
+
+
+llvm.func @main: llvm.func <builtin.integer i32() variadic = false>
+    ^entry_block16v1()
+    -> effects: Alive { no_alias: {}, known_pointees: {} }
+
+        v25 = llvm.constant <builtin.integer <0: i32>> : builtin.integer i32
+        -> result: KnownConst(0)
+        -> effects: Alive { no_alias: {}, known_pointees: {} }
+
+        llvm.return v25
 
 
 
