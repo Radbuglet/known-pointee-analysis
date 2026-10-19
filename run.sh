@@ -7,7 +7,7 @@ BREW_PREFIX="$(brew --prefix)"
 export PATH="$BREW_PREFIX/opt/llvm/bin:$PATH"
 
 pushd res/
-clang-23 -O3 -c -emit-llvm -o input.ll input.cpp
+clang-23 -O3 -S -emit-llvm -o input.ll input.cpp
 cargo run -- input.ll output.ll > output.txt
 llc output.ll -o output.S
 cc output.S -o output
