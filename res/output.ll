@@ -5,7 +5,8 @@ target triple = "arm64-apple-macosx15.0.0"
 
 @.str = private constant [29 x i8] c"bad analysis at location %u\0A\00", align 1
 @.str.1 = private constant [27 x i8] c"I'm allegedly unreachable!\00", align 1
-@.str.2 = private constant [15 x i8] c"*foo = 0x%lld\0A\00", align 1
+@.str.2 = private constant [27 x i8] c"We're about to read `foo`.\00", align 1
+@.str.3 = private constant [15 x i8] c"*foo = 0x%lld\0A\00", align 1
 
 ; Function Attrs: mustprogress nofree noinline nounwind ssp uwtable(sync)
 define void @meow_assert(i1 %0, i32 %1) #0 {
@@ -29,20 +30,23 @@ entry_block5v1:
   store i64 1, ptr %0, align 8, !tbaa !10
   store i8 1, ptr %1, align 1, !tbaa !12
   %v8 = load i64, ptr %0, align 8, !tbaa !10
+  %v26 = icmp ne i64 %v8, 1
+  call void @meow_assert(i1 %v26, i32 0)
   %v9 = icmp eq i64 %v8, 1
+  %v30 = icmp ne i1 %v9, true
+  call void @meow_assert(i1 %v30, i32 1)
   br i1 %v9, label %block7v1, label %block6v1
 
 block6v1:                                         ; preds = %entry_block5v1
-  call void @meow_assert(i1 false, i32 4)
+  call void @meow_assert(i1 false, i32 2)
   %v11 = call i32 @puts(ptr @.str.1)
-  call void @meow_assert(i1 false, i32 5)
-  %v12 = load i64, ptr %0, align 8, !tbaa !10
-  call void @meow_assert(i1 false, i32 6)
+  call void @meow_assert(i1 false, i32 3)
   br label %block7v1
 
 block7v1:                                         ; preds = %block6v1, %entry_block5v1
-  %v13 = phi i64 [ 1, %entry_block5v1 ], [ %v12, %block6v1 ]
-  %v15 = call i32 (ptr, ...) @printf(ptr @.str.2, i64 %v13)
+  %v13 = call i32 @puts(ptr @.str.2)
+  %v14 = load i64, ptr %0, align 8, !tbaa !10
+  %v16 = call i32 (ptr, ...) @printf(ptr @.str.3, i64 %v14)
   ret void
 }
 
@@ -52,12 +56,12 @@ declare i32 @puts(ptr) #1
 ; Function Attrs: mustprogress nofree norecurse nounwind ssp uwtable(sync)
 define i32 @main() #2 {
 entry_block8v1:
-  %v17 = alloca i64, align 8
-  call void @llvm.lifetime.start.p0(ptr %v17) #4
-  store i64 1, ptr %v17, align 8, !tbaa !10
-  %v20 = getelementptr inbounds nuw i8, ptr %v17, i64 1
-  call void @_Z4meowPyPh(ptr %v17, ptr %v20)
-  call void @llvm.lifetime.end.p0(ptr %v17) #4
+  %v18 = alloca i64, align 8
+  call void @llvm.lifetime.start.p0(ptr %v18) #4
+  store i64 1, ptr %v18, align 8, !tbaa !10
+  %v21 = getelementptr inbounds nuw i8, ptr %v18, i64 1
+  call void @_Z4meowPyPh(ptr %v18, ptr %v21)
+  call void @llvm.lifetime.end.p0(ptr %v18) #4
   ret i32 0
 }
 

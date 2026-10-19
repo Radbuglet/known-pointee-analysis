@@ -112,9 +112,9 @@ impl Pass for MeowAnnotate {
                         let mut inserter =
                             IRInserter::<DummyListener>::new(OpInsertionPoint::BeforeOperation(op));
 
-                        inserter.insert_operation(ctx, false_op.get_operation());
-                        inserter.insert_operation(ctx, site_op.get_operation());
-                        inserter.insert_operation(ctx, assert_op.get_operation());
+                        inserter.append_operation(ctx, false_op.get_operation());
+                        inserter.append_operation(ctx, site_op.get_operation());
+                        inserter.append_operation(ctx, assert_op.get_operation());
                     }
                     EffectLattice::Alive {
                         no_alias: _,
@@ -133,8 +133,8 @@ impl Pass for MeowAnnotate {
                     let output_lattice =
                         scratch.value(graph.node_defs[graph.op_map[&op]].unwrap_output_value());
 
-                    if let ValueLattice::KnownConst(expected) =
-                        output_lattice.promote_load_non_monotonic()
+                    if let ValueLattice::KnownLoad(expected) = output_lattice
+                        && let Some(expected) = expected.branches.get(expected.read_src)
                     {
                         let expected_op = ConstantOp::new(
                             ctx,
@@ -173,10 +173,10 @@ impl Pass for MeowAnnotate {
                         let mut inserter =
                             IRInserter::<DummyListener>::new(OpInsertionPoint::AfterOperation(op));
 
-                        inserter.insert_operation(ctx, expected_op.get_operation());
-                        inserter.insert_operation(ctx, check_op.get_operation());
-                        inserter.insert_operation(ctx, site_op.get_operation());
-                        inserter.insert_operation(ctx, assert_op.get_operation());
+                        inserter.append_operation(ctx, expected_op.get_operation());
+                        inserter.append_operation(ctx, check_op.get_operation());
+                        inserter.append_operation(ctx, site_op.get_operation());
+                        inserter.append_operation(ctx, assert_op.get_operation());
                     }
                 }
             }

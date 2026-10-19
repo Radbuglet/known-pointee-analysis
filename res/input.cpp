@@ -23,6 +23,7 @@ __attribute__((noinline)) void meow(uint64_t *foo, uint8_t *bar)
         puts("I'm allegedly unreachable!");
     }
 
+    puts("We're about to read `foo`.");
     printf("*foo = 0x%lld\n", *foo);
 }
 
