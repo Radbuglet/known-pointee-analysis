@@ -1,5 +1,10 @@
 use pliron::{
+    builtin::{
+        op_interfaces::CallOpCallable,
+        types::{IntegerType, Signedness},
+    },
     context::{Context, Ptr},
+    ident,
     irbuild::{
         inserter::{IRInserter, Inserter, OpInsertionPoint},
         listener::DummyListener,
@@ -10,7 +15,10 @@ use pliron::{
     pass::{AnalysisManager, Pass, PassResult},
     result::Error as PlironError,
 };
-use pliron_llvm::ops::UnreachableOp;
+use pliron_llvm::{
+    ops::CallOp,
+    types::{FuncType, PointerType, VoidType},
+};
 
 use crate::{analysis::PointeeConstantsFacts, dataflow::DataflowGraph, lattice::EffectLattice};
 
@@ -41,6 +49,8 @@ impl Pass for MeowAnnotate {
 
         let mut bb_iter = region.deref(ctx).get_head();
 
+        let mut loc_counter = 0u32;
+
         while let Some(bb) = bb_iter {
             bb_iter = bb.deref(ctx).get_next();
 
@@ -57,8 +67,25 @@ impl Pass for MeowAnnotate {
 
                 match input_effect {
                     EffectLattice::Dead => {
-                        let unreachable = UnreachableOp::new(ctx).get_operation();
-                        inserter.insert_operation(ctx, unreachable);
+                        let assert_op = CallOp::new(
+                            ctx,
+                            CallOpCallable::Direct(ident!("meow_assert")),
+                            FuncType::get(
+                                ctx,
+                                VoidType::get(ctx).to_handle(),
+                                [
+                                    IntegerType::get(ctx, 1, Signedness::Signless).to_handle(),
+                                    IntegerType::get(ctx, 32, Signedness::Unsigned).to_handle(),
+                                ]
+                                .into(),
+                                false,
+                            ),
+                            // FIXME
+                            [].into(),
+                        )
+                        .get_operation();
+
+                        inserter.insert_operation(ctx, assert_op);
                     }
                     EffectLattice::Alive {
                         no_alias,
