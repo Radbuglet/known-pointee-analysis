@@ -11,6 +11,7 @@ use pliron::{
 use pliron_llvm::{
     from_llvm_ir,
     llvm_sys::core::{LLVMContext, LLVMModule},
+    to_llvm_ir::{self, ToLLVMOptions},
 };
 
 use crate::{
@@ -28,7 +29,7 @@ fn main() -> anyhow::Result<()> {
     let args = args.iter().map(|v| v.as_str()).collect::<Vec<_>>();
     let args = &args[..];
 
-    let [_bin_name, input_path] = *args else {
+    let [_bin_name, input_path, output_path] = *args else {
         anyhow::bail!("invalid usage");
     };
 
@@ -45,47 +46,8 @@ fn main() -> anyhow::Result<()> {
     verify_op(&module, &mut ctx)
         .with_context(|| format!("verification failed\n{}", module.disp(&mut ctx)))?;
 
-    // Run an analysis
-    // See: https://docs.rs/pliron/0.18.0/pliron/pass/index.html
     let mut analysis_mgr = AnalysisManager::default();
 
-    // An `Operation`, in essence, is just...
-    //
-    // - a container for arbitrary metadata (e.g. literal arguments, but not SSA arguments or types,
-    //   which are modelled elsewhere)
-    //    - see `attributes`
-    // - a set of interfaces which can be dynamically casted
-    //    - these are defined statically per concrete operand type
-    //    - see `concrete_op` and the `Op` trait
-    //    - this also includes printing and parsing behavior
-    // - a set of input and output SSA terms
-    //    - each term has a type
-    //    - see `operands` and `results`
-    // - a set of successor blocks
-    //    - see `successors`
-    //    - arguments to these blocks are *operation defined*
-    // - a set of child regions, containing a bunch of basic blocks which, in turn, contain more
-    //   operations.
-    //    - basic blocks use linked lists of operations, which is how operations know their position in
-    //      basic blocks.
-    // - a source location
-    //    - see `loc`
-    //
-    // You define operations in dialects using the `#[pliron_op]` derive macro, which essentially
-    // creates a new-type to provide type-safety around these operations.
-    //
-    // This abstraction can be used to model...
-    //
-    // - Modules
-    // - Functions
-    // - Statements
-    // - Terminators
-    //
-    // `ModuleOp` models its child functions as a single child region with a single basic block
-    // within that region which has no terminator. The operations within that "body" are module's
-    // definitions. See the set of interfaces `ModuleOp` implements.
-    //
-    // This is honestly quite a clever modeling technique. Kudos!
     let module_defs = module.get_body(&ctx, 0);
 
     for op in module_defs.deref(&ctx).iter(&ctx) {
@@ -102,6 +64,10 @@ fn main() -> anyhow::Result<()> {
 
         println!("{}", dataflow_pretty(&ctx, graph, scratch));
     }
+
+    to_llvm_ir::convert_module(&ctx, &llvm_ctx, module, ToLLVMOptions::default())?
+        .asm_to_file(output_path)
+        .map_err(|err| anyhow::anyhow!("failed to write out assembly: {err}"))?;
 
     Ok(())
 }
