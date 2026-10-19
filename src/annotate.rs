@@ -85,7 +85,7 @@ impl Pass for MeowAnnotate {
                         let site_op = ConstantOp::new(
                             ctx,
                             Box::new(IntegerAttr::new(
-                                bool_ty,
+                                uint_ty,
                                 APInt::from_u32(loc_counter, NonZeroUsize::new(32).unwrap()),
                             )),
                         );

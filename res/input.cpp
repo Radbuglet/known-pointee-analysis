@@ -2,17 +2,6 @@
 #include <cstdio>
 #include <cstdlib>
 
-__attribute__((noinline)) [[noreturn]]
-void panic()
-{
-    puts("panicked!");
-    exit(EXIT_FAILURE);
-}
-
-__attribute__((noinline)) void arbitrary_side_effect()
-{
-}
-
 extern "C"
 {
     __attribute__((noinline)) void meow_assert(bool cond, unsigned int location)
@@ -24,58 +13,20 @@ extern "C"
     }
 }
 
-void meow(uint32_t *foo, uint32_t *bar)
+void meow(uint64_t *foo, uint8_t *bar)
 {
-    // First iteration
-    if (*foo == 1)
-    {
-        *foo = 2;
-    }
-    else
-    {
-        panic();
-    }
-
-    if (*bar == 3)
-    {
-        *bar = 4;
-    }
-    else
-    {
-        panic();
-    }
-
     *foo = 1;
-    *bar = 3;
+    *bar = 1;
 
-    // arbitrary_side_effect();
-
-    // Second iteration
-    if (*foo == 1)
+    if (*foo != 1)
     {
-        *foo = 2;
+        puts("I'm allegedly unreachable!\n");
     }
-    else
-    {
-        panic();
-    }
-
-    if (*bar == 3)
-    {
-        *bar = 4;
-    }
-    else
-    {
-        panic();
-    }
-
-    *foo = 1;
-    *bar = 3;
 }
 
 int main()
 {
-    uint32_t a = 1;
-    uint32_t b = 3;
-    meow(&a, &b);
+    uint64_t a = 1;
+    // https://en.cppreference.com/c/language/object#Strict_aliasing
+    meow(&a, reinterpret_cast<uint8_t *>(&a) + 1);
 }
