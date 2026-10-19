@@ -32,7 +32,9 @@ block6v1:                                         ; preds = %block4v1
   br i1 %v12, label %block8v1, label %block7v1
 
 block7v1:                                         ; preds = %block6v1
+  unreachable
   call void @_Z5panicv() #2
+  unreachable
   unreachable
 
 block8v1:                                         ; preds = %block6v1
@@ -42,7 +44,9 @@ block8v1:                                         ; preds = %block6v1
   br i1 %v15, label %block10v1, label %block9v1
 
 block9v1:                                         ; preds = %block8v1
+  unreachable
   call void @_Z5panicv() #2
+  unreachable
   unreachable
 
 block10v1:                                        ; preds = %block8v1
