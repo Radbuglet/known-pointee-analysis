@@ -46,21 +46,25 @@ llvm.func @_Z4meowPyPh: llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variad
         -> result: Unknown
         -> effects: Alive { no_alias: {}, known_pointees: {} }
 
+        v14 = llvm.addressof @_str_2 : llvm.ptr (0)
+        -> result: Unknown
+        -> effects: Alive { no_alias: {}, known_pointees: {} }
+
         llvm.store *v4 <- v6 [align : 8] !0
-        -> effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 1} }
+        -> effects: Alive { no_alias: {}, known_pointees: {Value { val_uid: 4, defining_entity: Block(Ptr<pliron::basic_block::BasicBlock>[5v1]) }: 1} }
 
         llvm.store *v5 <- v7 [align : 1] !0
-        -> effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 1} }
+        -> effects: Alive { no_alias: {}, known_pointees: {Value { val_uid: 5, defining_entity: Block(Ptr<pliron::basic_block::BasicBlock>[5v1]) }: 1, Value { val_uid: 4, defining_entity: Block(Ptr<pliron::basic_block::BasicBlock>[5v1]) }: 1} }
 
         v8 = llvm.load v4 [align : 8] : builtin.integer i64 !0
-        -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(0), branches: {PtrIdx(0): 1, PtrIdx(1): 1} })
-        -> effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 1} }
+        -> result: KnownLoad(LoadHypothesis { read_src: Value { val_uid: 4, defining_entity: Block(Ptr<pliron::basic_block::BasicBlock>[5v1]) }, branches: {Value { val_uid: 5, defining_entity: Block(Ptr<pliron::basic_block::BasicBlock>[5v1]) }: 1, Value { val_uid: 4, defining_entity: Block(Ptr<pliron::basic_block::BasicBlock>[5v1]) }: 1} })
+        -> effects: Alive { no_alias: {}, known_pointees: {Value { val_uid: 5, defining_entity: Block(Ptr<pliron::basic_block::BasicBlock>[5v1]) }: 1, Value { val_uid: 4, defining_entity: Block(Ptr<pliron::basic_block::BasicBlock>[5v1]) }: 1} }
 
         v9 = llvm.icmp v8 <EQ> v6 : builtin.integer i1
-        -> result: KnownLoad(LoadHypothesis { read_src: PtrIdx(0), branches: {PtrIdx(0): 1, PtrIdx(1): 1} })
-        -> effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 1} }
+        -> result: KnownLoad(LoadHypothesis { read_src: Value { val_uid: 4, defining_entity: Block(Ptr<pliron::basic_block::BasicBlock>[5v1]) }, branches: {Value { val_uid: 5, defining_entity: Block(Ptr<pliron::basic_block::BasicBlock>[5v1]) }: 1, Value { val_uid: 4, defining_entity: Block(Ptr<pliron::basic_block::BasicBlock>[5v1]) }: 1} })
+        -> effects: Alive { no_alias: {}, known_pointees: {Value { val_uid: 5, defining_entity: Block(Ptr<pliron::basic_block::BasicBlock>[5v1]) }: 1, Value { val_uid: 4, defining_entity: Block(Ptr<pliron::basic_block::BasicBlock>[5v1]) }: 1} }
 
-        llvm.cond_br if v9 ^block7v1() else ^block6v1()
+        llvm.cond_br if v9 ^block7v1(v6) else ^block6v1()
 
 
     ^block6v1()
@@ -70,11 +74,20 @@ llvm.func @_Z4meowPyPh: llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variad
         -> result: Dead
         -> effects: Dead
 
-        llvm.br ^block7v1()
+        v12 = llvm.load v4 [align : 8] : builtin.integer i64 !0
+        -> result: Dead
+        -> effects: Dead
+
+        llvm.br ^block7v1(v12)
 
 
-    ^block7v1()
-    -> effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 1, PtrIdx(1): 1} }
+    ^block7v1("v13: builtin.integer i64")
+    -> effects: Alive { no_alias: {}, known_pointees: {Value { val_uid: 5, defining_entity: Block(Ptr<pliron::basic_block::BasicBlock>[5v1]) }: 1, Value { val_uid: 4, defining_entity: Block(Ptr<pliron::basic_block::BasicBlock>[5v1]) }: 1} }
+    -> v13: KnownConst(1)
+
+        v15 = llvm.call @printf (v14, v13) : llvm.func <builtin.integer i32(llvm.ptr (0)) variadic = true>
+        -> result: Unknown
+        -> effects: Alive { no_alias: {}, known_pointees: {} }
 
         llvm.return 
 
@@ -84,42 +97,42 @@ llvm.func @main: llvm.func <builtin.integer i32() variadic = false>
     ^entry_block8v1()
     -> effects: Alive { no_alias: {}, known_pointees: {} }
 
-        v12 = llvm.constant <builtin.integer <1: i32>> : builtin.integer i32
+        v16 = llvm.constant <builtin.integer <1: i32>> : builtin.integer i32
         -> result: KnownConst(1)
         -> effects: Alive { no_alias: {}, known_pointees: {} }
 
-        v15 = llvm.constant <builtin.integer <1: i64>> : builtin.integer i64
+        v19 = llvm.constant <builtin.integer <1: i64>> : builtin.integer i64
         -> result: KnownConst(1)
         -> effects: Alive { no_alias: {}, known_pointees: {} }
 
-        v19 = llvm.constant <builtin.integer <0: i32>> : builtin.integer i32
+        v23 = llvm.constant <builtin.integer <0: i32>> : builtin.integer i32
         -> result: KnownConst(0)
         -> effects: Alive { no_alias: {}, known_pointees: {} }
 
-        v13 = llvm.alloca [builtin.integer i64 x v12] [align : 8] : llvm.ptr (0)
+        v17 = llvm.alloca [builtin.integer i64 x v16] [align : 8] : llvm.ptr (0)
         -> result: Unknown
         -> effects: Alive { no_alias: {}, known_pointees: {} }
 
-        v14 = llvm.call_intrinsic @"llvm.lifetime.start.p0" (v13) : llvm.func <llvm.void (llvm.ptr (0)) variadic = false> !0
+        v18 = llvm.call_intrinsic @"llvm.lifetime.start.p0" (v17) : llvm.func <llvm.void (llvm.ptr (0)) variadic = false> !0
         -> result: Unknown
         -> effects: Alive { no_alias: {}, known_pointees: {} }
 
-        llvm.store *v13 <- v15 [align : 8] !0
-        -> effects: Alive { no_alias: {}, known_pointees: {PtrIdx(0): 1} }
+        llvm.store *v17 <- v19 [align : 8] !0
+        -> effects: Alive { no_alias: {}, known_pointees: {Value { val_uid: 17, defining_entity: Op(Ptr<pliron::operation::Operation>[30v1]) }: 1} }
 
-        v16 = llvm.gep <builtin.integer i8> (v13, v15)<INBOUNDS | NUW>[OperandIdx(1)] : llvm.ptr (0)
+        v20 = llvm.gep <builtin.integer i8> (v17, v19)<INBOUNDS | NUW>[OperandIdx(1)] : llvm.ptr (0)
         -> result: Unknown
         -> effects: Alive { no_alias: {}, known_pointees: {} }
 
-        v17 = llvm.call @_Z4meowPyPh (v13, v16) : llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variadic = false>
+        v21 = llvm.call @_Z4meowPyPh (v17, v20) : llvm.func <llvm.void (llvm.ptr (0), llvm.ptr (0)) variadic = false>
         -> result: Unknown
         -> effects: Alive { no_alias: {}, known_pointees: {} }
 
-        v18 = llvm.call_intrinsic @"llvm.lifetime.end.p0" (v13) : llvm.func <llvm.void (llvm.ptr (0)) variadic = false> !0
+        v22 = llvm.call_intrinsic @"llvm.lifetime.end.p0" (v17) : llvm.func <llvm.void (llvm.ptr (0)) variadic = false> !0
         -> result: Unknown
         -> effects: Alive { no_alias: {}, known_pointees: {} }
 
-        llvm.return v19
+        llvm.return v23
 
 
 

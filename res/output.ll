@@ -5,6 +5,7 @@ target triple = "arm64-apple-macosx15.0.0"
 
 @.str = private constant [29 x i8] c"bad analysis at location %u\0A\00", align 1
 @.str.1 = private constant [27 x i8] c"I'm allegedly unreachable!\00", align 1
+@.str.2 = private constant [15 x i8] c"*foo = 0x%lld\0A\00", align 1
 
 ; Function Attrs: mustprogress nofree noinline nounwind ssp uwtable(sync)
 define void @meow_assert(i1 %0, i32 %1) #0 {
@@ -32,12 +33,16 @@ entry_block5v1:
   br i1 %v9, label %block7v1, label %block6v1
 
 block6v1:                                         ; preds = %entry_block5v1
-  call void @meow_assert(i1 false, i32 0)
+  call void @meow_assert(i1 false, i32 4)
   %v11 = call i32 @puts(ptr @.str.1)
-  call void @meow_assert(i1 false, i32 1)
+  call void @meow_assert(i1 false, i32 5)
+  %v12 = load i64, ptr %0, align 8, !tbaa !10
+  call void @meow_assert(i1 false, i32 6)
   br label %block7v1
 
 block7v1:                                         ; preds = %block6v1, %entry_block5v1
+  %v13 = phi i64 [ 1, %entry_block5v1 ], [ %v12, %block6v1 ]
+  %v15 = call i32 (ptr, ...) @printf(ptr @.str.2, i64 %v13)
   ret void
 }
 
@@ -47,12 +52,12 @@ declare i32 @puts(ptr) #1
 ; Function Attrs: mustprogress nofree norecurse nounwind ssp uwtable(sync)
 define i32 @main() #2 {
 entry_block8v1:
-  %v13 = alloca i64, align 8
-  call void @llvm.lifetime.start.p0(ptr %v13) #4
-  store i64 1, ptr %v13, align 8, !tbaa !10
-  %v16 = getelementptr inbounds nuw i8, ptr %v13, i64 1
-  call void @_Z4meowPyPh(ptr %v13, ptr %v16)
-  call void @llvm.lifetime.end.p0(ptr %v13) #4
+  %v17 = alloca i64, align 8
+  call void @llvm.lifetime.start.p0(ptr %v17) #4
+  store i64 1, ptr %v17, align 8, !tbaa !10
+  %v20 = getelementptr inbounds nuw i8, ptr %v17, i64 1
+  call void @_Z4meowPyPh(ptr %v17, ptr %v20)
+  call void @llvm.lifetime.end.p0(ptr %v17) #4
   ret i32 0
 }
 

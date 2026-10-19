@@ -11,4 +11,5 @@ clang-23 -O3 -c -emit-llvm -o input.ll input.cpp
 cargo run -- input.ll output.ll > output.txt
 llc output.ll -o output.S
 cc output.S -o output
+./output
 popd > /dev/null

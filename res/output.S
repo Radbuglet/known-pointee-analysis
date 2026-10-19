@@ -32,20 +32,25 @@ LBB0_2:                                 ; %block4v1
 __Z4meowPyPh:                           ; @_Z4meowPyPh
 	.cfi_startproc
 ; %bb.0:                                ; %entry_block5v1
-	mov	w8, #1                          ; =0x1
-	str	x8, [x0]
-	strb	w8, [x1]
+	sub	sp, sp, #48
+	stp	x20, x19, [sp, #16]             ; 16-byte Folded Spill
+	stp	x29, x30, [sp, #32]             ; 16-byte Folded Spill
+	add	x29, sp, #32
+	.cfi_def_cfa w29, 16
+	.cfi_offset w30, -8
+	.cfi_offset w29, -16
+	.cfi_offset w19, -24
+	.cfi_offset w20, -32
+	mov	w20, #1                         ; =0x1
+	str	x20, [x0]
+	strb	w20, [x1]
 	ldr	x8, [x0]
 	cmp	x8, #1
 	b.eq	LBB1_2
 ; %bb.1:                                ; %block6v1
-	stp	x29, x30, [sp, #-16]!           ; 16-byte Folded Spill
-	mov	x29, sp
-	.cfi_def_cfa w29, 16
-	.cfi_offset w30, -8
-	.cfi_offset w29, -16
+	mov	x19, x0
 	mov	w0, #0                          ; =0x0
-	mov	w1, #0                          ; =0x0
+	mov	w1, #4                          ; =0x4
 	bl	_meow_assert
 Lloh2:
 	adrp	x0, l_.str.1@PAGE
@@ -53,12 +58,25 @@ Lloh3:
 	add	x0, x0, l_.str.1@PAGEOFF
 	bl	_puts
 	mov	w0, #0                          ; =0x0
-	mov	w1, #1                          ; =0x1
+	mov	w1, #5                          ; =0x5
 	bl	_meow_assert
-	ldp	x29, x30, [sp], #16             ; 16-byte Folded Reload
+	ldr	x20, [x19]
+	mov	w0, #0                          ; =0x0
+	mov	w1, #6                          ; =0x6
+	bl	_meow_assert
 LBB1_2:                                 ; %block7v1
+	str	x20, [sp]
+Lloh4:
+	adrp	x0, l_.str.2@PAGE
+Lloh5:
+	add	x0, x0, l_.str.2@PAGEOFF
+	bl	_printf
+	ldp	x29, x30, [sp, #32]             ; 16-byte Folded Reload
+	ldp	x20, x19, [sp, #16]             ; 16-byte Folded Reload
+	add	sp, sp, #48
 	ret
 	.loh AdrpAdd	Lloh2, Lloh3
+	.loh AdrpAdd	Lloh4, Lloh5
 	.cfi_endproc
                                         ; -- End function
 	.globl	_main                           ; -- Begin function main
@@ -90,5 +108,8 @@ l_.str:                                 ; @.str
 
 l_.str.1:                               ; @.str.1
 	.asciz	"I'm allegedly unreachable!"
+
+l_.str.2:                               ; @.str.2
+	.asciz	"*foo = 0x%lld\n"
 
 .subsections_via_symbols

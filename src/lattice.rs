@@ -1,9 +1,7 @@
 use std::{fmt, rc::Rc};
 
+use pliron::value::Value;
 use rustc_hash::{FxHashMap, FxHashSet};
-
-#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
-pub struct PtrIdx(pub u32);
 
 // === ValueLattice === //
 
@@ -18,7 +16,7 @@ pub enum ValueLattice {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct LoadHypothesis {
-    pub read_src: PtrIdx,
+    pub read_src: Value,
     pub branches: KnownPointeeMap,
 }
 
@@ -122,7 +120,7 @@ impl Default for EffectLattice {
 }
 
 impl EffectLattice {
-    pub fn read_monotonic(&self, ptr: PtrIdx) -> ValueLattice {
+    pub fn read_monotonic(&self, ptr: Value) -> ValueLattice {
         match self {
             EffectLattice::Dead => ValueLattice::Dead,
             EffectLattice::Alive {
@@ -135,7 +133,7 @@ impl EffectLattice {
         }
     }
 
-    pub fn write_monotonic(&mut self, ptr: PtrIdx, value: &ValueLattice) {
+    pub fn write_monotonic(&mut self, ptr: Value, value: &ValueLattice) {
         let EffectLattice::Alive {
             no_alias,
             known_pointees,
@@ -167,7 +165,7 @@ impl EffectLattice {
         }
     }
 
-    pub fn push_no_alias_monotonic(&mut self, lhs: PtrIdx, rhs: PtrIdx) {
+    pub fn push_no_alias_monotonic(&mut self, lhs: Value, rhs: Value) {
         let EffectLattice::Alive {
             no_alias,
             known_pointees: _,
@@ -223,7 +221,7 @@ impl EffectLattice {
 
 #[derive(Clone, Eq, PartialEq, Default)]
 pub struct NoAliasSet {
-    pairs: FxHashSet<[PtrIdx; 2]>,
+    pairs: FxHashSet<[Value; 2]>,
 }
 
 impl fmt::Debug for NoAliasSet {
@@ -233,16 +231,13 @@ impl fmt::Debug for NoAliasSet {
 }
 
 impl NoAliasSet {
-    pub fn add(&mut self, lhs: PtrIdx, rhs: PtrIdx) {
-        let mut pair = [lhs, rhs];
-        pair.sort();
-        self.pairs.insert(pair);
+    pub fn add(&mut self, lhs: Value, rhs: Value) {
+        self.pairs.insert([lhs, rhs]);
+        self.pairs.insert([rhs, lhs]);
     }
 
-    pub fn has(&self, lhs: PtrIdx, rhs: PtrIdx) -> bool {
-        let mut pair = [lhs, rhs];
-        pair.sort();
-        self.pairs.contains(&pair)
+    pub fn has(&self, lhs: Value, rhs: Value) -> bool {
+        self.pairs.contains(&[lhs, rhs])
     }
 
     pub fn join(&mut self, other: &Self) {
@@ -252,7 +247,7 @@ impl NoAliasSet {
 
 #[derive(Clone, Eq, PartialEq, Default)]
 pub struct KnownPointeeMap {
-    pub raw: Rc<FxHashMap<PtrIdx, u64>>,
+    pub raw: Rc<FxHashMap<Value, u64>>,
 }
 
 impl fmt::Debug for KnownPointeeMap {
@@ -262,7 +257,7 @@ impl fmt::Debug for KnownPointeeMap {
 }
 
 impl KnownPointeeMap {
-    pub fn get(&self, idx: PtrIdx) -> Option<u64> {
+    pub fn get(&self, idx: Value) -> Option<u64> {
         self.raw.get(&idx).copied()
     }
 
