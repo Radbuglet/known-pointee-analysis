@@ -5,8 +5,9 @@ target triple = "arm64-apple-macosx15.0.0"
 
 @.str = private constant [29 x i8] c"bad analysis at location %u\0A\00", align 1
 @.str.1 = private constant [27 x i8] c"I'm allegedly unreachable!\00", align 1
-@.str.2 = private constant [27 x i8] c"We're about to read `foo`.\00", align 1
-@.str.3 = private constant [15 x i8] c"*foo = 0x%lld\0A\00", align 1
+@.str.2 = private constant [15 x i8] c"*foo = 0x%llx\0A\00", align 1
+@.str.3 = private constant [7 x i8] c"demo 1\00", align 1
+@.str.4 = private constant [7 x i8] c"demo 2\00", align 1
 
 ; Function Attrs: mustprogress nofree noinline nounwind ssp uwtable(sync)
 define void @meow_assert(i1 %0, i32 %1) #0 {
@@ -25,16 +26,16 @@ block4v1:                                         ; preds = %block3v1, %entry_bl
 declare i32 @printf(ptr, ...) #1
 
 ; Function Attrs: mustprogress nofree noinline nounwind ssp uwtable(sync)
-define void @_Z4meowPyPh(ptr %0, ptr %1) #0 {
+define void @_Z6demo_1PyPh(ptr %0, ptr %1) #0 {
 entry_block5v1:
   store i64 1, ptr %0, align 8, !tbaa !10
   store i8 1, ptr %1, align 1, !tbaa !12
   %v8 = load i64, ptr %0, align 8, !tbaa !10
-  %v26 = icmp ne i64 %v8, 1
-  call void @meow_assert(i1 %v26, i32 0)
+  %v37 = icmp eq i64 %v8, 1
+  call void @meow_assert(i1 %v37, i32 0)
   %v9 = icmp eq i64 %v8, 1
-  %v30 = icmp ne i1 %v9, true
-  call void @meow_assert(i1 %v30, i32 1)
+  %v41 = icmp eq i1 %v9, true
+  call void @meow_assert(i1 %v41, i32 1)
   br i1 %v9, label %block7v1, label %block6v1
 
 block6v1:                                         ; preds = %entry_block5v1
@@ -44,24 +45,41 @@ block6v1:                                         ; preds = %entry_block5v1
   br label %block7v1
 
 block7v1:                                         ; preds = %block6v1, %entry_block5v1
-  %v13 = call i32 @puts(ptr @.str.2)
-  %v14 = load i64, ptr %0, align 8, !tbaa !10
-  %v16 = call i32 (ptr, ...) @printf(ptr @.str.3, i64 %v14)
   ret void
 }
 
 ; Function Attrs: nofree nounwind
 declare i32 @puts(ptr) #1
 
+; Function Attrs: mustprogress nofree noinline nounwind ssp uwtable(sync)
+define void @_Z6demo_2PyPh(ptr %0, ptr %1) #0 {
+entry_block8v1:
+  store i64 1, ptr %0, align 8, !tbaa !10
+  store i8 1, ptr %1, align 1, !tbaa !12
+  %v16 = load i64, ptr %0, align 8, !tbaa !10
+  %v51 = icmp eq i64 %v16, 1
+  call void @meow_assert(i1 %v51, i32 0)
+  %v18 = call i32 (ptr, ...) @printf(ptr @.str.2, i64 %v16)
+  ret void
+}
+
 ; Function Attrs: mustprogress nofree norecurse nounwind ssp uwtable(sync)
 define i32 @main() #2 {
-entry_block8v1:
-  %v18 = alloca i64, align 8
-  call void @llvm.lifetime.start.p0(ptr %v18) #4
-  store i64 1, ptr %v18, align 8, !tbaa !10
-  %v21 = getelementptr inbounds nuw i8, ptr %v18, i64 1
-  call void @_Z4meowPyPh(ptr %v18, ptr %v21)
-  call void @llvm.lifetime.end.p0(ptr %v18) #4
+entry_block9v1:
+  %v20 = alloca i64, align 8
+  %v21 = alloca i64, align 8
+  %v23 = call i32 @puts(ptr @.str.3)
+  call void @llvm.lifetime.start.p0(ptr %v20) #4
+  store i64 1, ptr %v20, align 8, !tbaa !10
+  %v26 = getelementptr inbounds nuw i8, ptr %v20, i64 1
+  call void @_Z6demo_1PyPh(ptr %v20, ptr %v26)
+  %v29 = call i32 @puts(ptr @.str.4)
+  call void @llvm.lifetime.start.p0(ptr %v21) #4
+  store i64 1, ptr %v21, align 8, !tbaa !10
+  %v31 = getelementptr inbounds nuw i8, ptr %v21, i64 1
+  call void @_Z6demo_2PyPh(ptr %v21, ptr %v31)
+  call void @llvm.lifetime.end.p0(ptr %v21) #4
+  call void @llvm.lifetime.end.p0(ptr %v20) #4
   ret i32 0
 }
 

@@ -148,7 +148,7 @@ impl Pass for MeowAnnotate {
 
                         let check_op = ICmpOp::new(
                             ctx,
-                            ICmpPredicateAttr::NE,
+                            ICmpPredicateAttr::EQ,
                             output_value,
                             expected_op.get_result(ctx),
                         );

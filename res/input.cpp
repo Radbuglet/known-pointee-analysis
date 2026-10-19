@@ -13,7 +13,7 @@ extern "C"
     }
 }
 
-__attribute__((noinline)) void meow(uint64_t *foo, uint8_t *bar)
+__attribute__((noinline)) void demo_1(uint64_t *foo, uint8_t *bar)
 {
     *foo = 1;
     *bar = 1;
@@ -22,14 +22,25 @@ __attribute__((noinline)) void meow(uint64_t *foo, uint8_t *bar)
     {
         puts("I'm allegedly unreachable!");
     }
+}
 
-    puts("We're about to read `foo`.");
-    printf("*foo = 0x%lld\n", *foo);
+__attribute__((noinline)) void demo_2(uint64_t *foo, uint8_t *bar)
+{
+    *foo = 1;
+    *bar = 1;
+
+    printf("*foo = 0x%llx\n", *foo);
 }
 
 int main()
 {
+    puts("demo 1");
     uint64_t a = 1;
     // https://en.cppreference.com/c/language/object#Strict_aliasing
-    meow(&a, reinterpret_cast<uint8_t *>(&a) + 1);
+    demo_1(&a, reinterpret_cast<uint8_t *>(&a) + 1);
+
+    puts("demo 2");
+    uint64_t b = 1;
+    // https://en.cppreference.com/c/language/object#Strict_aliasing
+    demo_2(&b, reinterpret_cast<uint8_t *>(&b) + 1);
 }
